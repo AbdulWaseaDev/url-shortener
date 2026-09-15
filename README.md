@@ -378,6 +378,8 @@ url-shortener/
 │   └── deploy.yml                          # CI/CD pipeline
 ├── URL-Shortener.postman_collection.json   # Postman collection
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
+├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
+├── INTERVIEW_GUIDE.md                      # Technical interview preparation
 ├── template.yaml                           # SAM/CloudFormation infrastructure
 ├── samconfig.toml                          # SAM deployment configuration
 ├── pytest.ini                              # Pytest configuration
@@ -427,25 +429,19 @@ pytest tests/integration/
 
 ---
 
-## Technical Interview Talking Points
+## 💼 Technical Interview Preparation
 
-If asked to explain this project:
+Preparing to discuss this project in interviews? See the comprehensive [**INTERVIEW_GUIDE.md**](INTERVIEW_GUIDE.md) for:
 
-1. **Architecture:** "It's a serverless three-tier app: API Gateway handles HTTP, Lambda processes business logic in Python, DynamoDB stores data. Fully managed, auto-scaling, pay-per-use."
+- **Architecture deep dives** - Serverless design patterns and trade-offs
+- **DynamoDB design decisions** - Why NoSQL over RDS, partition key strategy
+- **Concurrency handling** - Atomic counters, collision resolution
+- **Security best practices** - IAM least privilege, OIDC authentication
+- **Testing strategies** - Unit vs integration testing approaches
+- **Observability** - CloudWatch, X-Ray, and monitoring best practices
+- **Common follow-up questions** - Scaling, abuse prevention, custom codes, cost analysis
 
-2. **DynamoDB Design:** "Short code is the partition key. I chose DynamoDB over RDS because (a) simple key-value access pattern, (b) millisecond latency at any scale, (c) no server management."
-
-3. **Atomic Counter:** "Click count uses DynamoDB's `ADD` operation in `UpdateItem`—it's atomic, no race conditions even under high concurrency. Alternative would be read-modify-write with optimistic locking, but that's slower and more complex."
-
-4. **Collision Handling:** "Short codes are random, so collisions are possible. I use `ConditionExpression: attribute_not_exists(short_code)` to atomically check-and-insert, then retry with a new code if it fails. 62^6 combinations means collisions are rare until millions of links."
-
-5. **IAM Least Privilege:** "Lambda role has DynamoDBCrudPolicy scoped to only this table. If compromised, attacker can't access S3, other DynamoDB tables, or escalate privileges."
-
-6. **Testing Strategy:** "Unit tests mock boto3 with Python's `unittest.mock`—fast, no AWS credentials needed. Integration tests hit real API and validate end-to-end flow. CI runs both before deploy."
-
-7. **CI/CD Security:** "GitHub Actions uses OIDC, not long-lived access keys. Each deploy gets a temporary token scoped to this repo. Mitigates risk of leaked credentials."
-
-8. **Observability:** "Lambda logs to CloudWatch, X-Ray tracing enabled for distributed debugging. API Gateway access logs capture HTTP metadata. 7-day retention balances cost and debuggability."
+**Quick talking points:** Serverless 3-tier architecture • DynamoDB atomic operations • 62^6 collision-resistant codes • OIDC-based CI/CD • X-Ray distributed tracing • Production-ready with comprehensive testing
 
 ---
 
