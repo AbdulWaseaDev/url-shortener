@@ -9,7 +9,6 @@ on:
 env:
   AWS_REGION: us-east-1
   PYTHON_VERSION: '3.12'
-  SAM_CLI_VERSION: latest
 
 permissions:
   id-token: write  # Required for OIDC authentication
@@ -40,7 +39,7 @@ jobs:
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
         with:
-          version: ${{ env.SAM_CLI_VERSION }}
+          use-installer: true
 
       - name: Run unit tests
         run: |
