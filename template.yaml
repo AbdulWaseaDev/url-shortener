@@ -46,6 +46,7 @@ Resources:
           Value: !Ref Environment
 
   # Lambda Function - handles all API routes (POST /links, GET /{code}, GET /links/{code}/stats)
+  # SAM automatically creates an implicit API Gateway when Events don't specify RestApiId
   UrlShortenerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -56,7 +57,7 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref LinksTable
-          BASE_URL: !Sub 'https://${UrlShortenerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+          BASE_URL: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
       Policies:
         # Least privilege IAM - only the specific DynamoDB actions needed
         # GetItem: Read link data for redirects and stats
@@ -70,19 +71,16 @@ Resources:
           Properties:
             Path: /links
             Method: POST
-            RestApiId: !Ref UrlShortenerApi
         GetRedirect:
           Type: Api
           Properties:
             Path: /{code}
             Method: GET
-            RestApiId: !Ref UrlShortenerApi
         GetStats:
           Type: Api
           Properties:
             Path: /links/{code}/stats
             Method: GET
-            RestApiId: !Ref UrlShortenerApi
       LoggingConfig:
         LogGroup: !Ref FunctionLogGroup
       Tags:
@@ -98,33 +96,10 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/url-shortener-api-${Environment}'
       RetentionInDays: 7
 
-  # API Gateway REST API
-  # Provides HTTP endpoints that trigger Lambda
-  UrlShortenerApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      Name: !Sub 'url-shortener-api-${Environment}'
-      StageName: Prod
-      TracingEnabled: true
-      AccessLogSetting:
-        DestinationArn: !GetAtt ApiLogGroup.Arn
-        Format: '$context.requestId $context.error.message $context.status $context.path $context.httpMethod'
-      Tags:
-        Application: url-shortener
-        Environment: !Ref Environment
-
-  # API Gateway Access Logs
-  # Captures HTTP request/response metadata for debugging
-  ApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/apigateway/url-shortener-${Environment}'
-      RetentionInDays: 7
-
 Outputs:
   ApiEndpoint:
     Description: 'API Gateway endpoint URL for URL shortener'
-    Value: !Sub 'https://${UrlShortenerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
     Export:
       Name: !Sub '${AWS::StackName}-ApiEndpoint'
 
