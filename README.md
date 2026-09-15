@@ -2,6 +2,21 @@
 
 A production-ready, serverless URL shortener built with AWS Lambda, API Gateway, and DynamoDB. Create short links, track click statistics, and redirect users—all with zero server management.
 
+## 🚀 Quick Start
+
+**Live API Endpoint:** `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod`
+
+**Create your first short link:**
+```bash
+curl -X POST https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://github.com/AbdulWaseaDev/url-shortener"}'
+```
+
+**Using Postman?**
+- Import the ready-to-use collection: `URL-Shortener.postman_collection.json`
+- See [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md) for detailed instructions
+
 ## What It Does
 
 This application provides a REST API for:
@@ -11,7 +26,7 @@ This application provides a REST API for:
 
 ## API Contract
 
-Base URL: `https://{api-id}.execute-api.{region}.amazonaws.com/Prod`
+**Base URL:** `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod`
 
 ### 1. Create Short Link
 
@@ -19,7 +34,7 @@ Base URL: `https://{api-id}.execute-api.{region}.amazonaws.com/Prod`
 
 **Request:**
 ```bash
-curl -X POST https://your-api.com/links \
+curl -X POST https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://example.com/very/long/url"}'
 ```
@@ -28,7 +43,7 @@ curl -X POST https://your-api.com/links \
 ```json
 {
   "short_code": "a3X9mK",
-  "short_url": "https://your-api.com/a3X9mK",
+  "short_url": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK",
   "original_url": "https://example.com/very/long/url"
 }
 ```
@@ -50,7 +65,7 @@ curl -X POST https://your-api.com/links \
 
 **Request:**
 ```bash
-curl -L https://your-api.com/a3X9mK
+curl -L https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK
 ```
 
 **Response:** `301 Moved Permanently`
@@ -71,7 +86,7 @@ The redirect is permanent (301), and each access atomically increments the click
 
 **Request:**
 ```bash
-curl https://your-api.com/links/a3X9mK/stats
+curl https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links/a3X9mK/stats
 ```
 
 **Response:** `200 OK`
@@ -103,7 +118,7 @@ curl https://your-api.com/links/a3X9mK/stats
 
 1. **Client** sends HTTP request to API Gateway
 2. **API Gateway** validates request structure and routes to Lambda
-3. **Lambda** (Python 3.12) executes business logic:
+3. **Lambda** (Python 3.13) executes business logic:
    - POST /links: Validates URL, generates 6-char short code, stores in DynamoDB
    - GET /{code}: Looks up code, atomically increments counter, returns 301 redirect
    - GET /links/{code}/stats: Retrieves and returns link metadata
@@ -155,7 +170,7 @@ The policy is scoped to **only** the specific DynamoDB table created by this sta
 
 1. **AWS CLI** configured with credentials ([setup guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html))
 2. **SAM CLI** installed ([installation guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html))
-3. **Python 3.12+** installed
+3. **Python 3.13+** installed
 4. **Docker** (for `sam build --use-container`)
 
 ### Deploy to AWS
@@ -192,12 +207,32 @@ sam deploy --config-env prod
 
 The deployment creates:
 - 1 DynamoDB table (on-demand billing)
-- 1 Lambda function (Python 3.12, 256MB memory)
+- 1 Lambda function (Python 3.13, 256MB memory)
 - 1 API Gateway REST API (3 routes)
 - 2 CloudWatch Log Groups (7-day retention)
 - 1 IAM role (Lambda execution role with DynamoDB permissions)
 
 **Estimated monthly cost:** $0-5 for low traffic (first 1M Lambda requests free, first 25GB DynamoDB storage free)
+
+---
+
+## Using the API with Postman
+
+### Import Collection (Recommended)
+
+1. Open Postman
+2. Click **Import** → **File** tab
+3. Select `URL-Shortener.postman_collection.json` from this repository
+4. All 3 endpoints will be pre-configured and ready to test!
+
+### Manual Testing
+
+See [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md) for:
+- Detailed endpoint descriptions
+- Request/response examples
+- Testing workflow
+- Tips for using environment variables
+- Sample Postman tests
 
 ---
 
@@ -227,7 +262,7 @@ Integration tests hit the **real deployed API**:
 
 ```bash
 # Set API endpoint (get from sam deploy output)
-export API_ENDPOINT=https://abc123.execute-api.us-east-1.amazonaws.com/Prod
+export API_ENDPOINT=https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod
 export RUN_INTEGRATION_TESTS=true
 
 # Run integration tests
@@ -267,82 +302,13 @@ sam local invoke UrlShortenerFunction -e events/get_stats.json
 
 ## CI/CD with GitHub Actions
 
-The project includes automated deployment on push to `main` via GitHub Actions.
-
-### Setup OIDC Authentication (One-Time)
-
-GitHub Actions uses **OIDC** (OpenID Connect) instead of long-lived access keys for security.
-
-#### 1. Create IAM OIDC Identity Provider (AWS Console)
-
-1. Go to **IAM → Identity Providers → Add Provider**
-2. Provider Type: `OpenID Connect`
-3. Provider URL: `https://token.actions.githubusercontent.com`
-4. Audience: `sts.amazonaws.com`
-5. Click **Add Provider**
-
-#### 2. Create IAM Role for GitHub Actions
-
-1. Go to **IAM → Roles → Create Role**
-2. Trusted Entity Type: `Web Identity`
-3. Identity Provider: `token.actions.githubusercontent.com`
-4. Audience: `sts.amazonaws.com`
-5. Click **Next**
-6. Attach policies:
-   - `AWSCloudFormationFullAccess`
-   - `IAMFullAccess`
-   - `AmazonS3FullAccess`
-   - `AWSLambda_FullAccess`
-   - `AmazonDynamoDBFullAccess`
-   - `AmazonAPIGatewayAdministrator`
-   - `CloudWatchLogsFullAccess`
-7. Role name: `GitHubActionsDeployRole`
-8. Click **Create Role**
-
-#### 3. Edit Trust Policy
-
-In the newly created role, go to **Trust Relationships → Edit Trust Policy**:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::{YOUR_ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:{YOUR_GITHUB_USERNAME}/url-shortener:ref:refs/heads/main"
-        }
-      }
-    }
-  ]
-}
-```
-
-**Replace:**
-- `{YOUR_ACCOUNT_ID}` with your AWS account ID (12 digits)
-- `{YOUR_GITHUB_USERNAME}` with your GitHub username
-
-#### 4. Add GitHub Repository Secret
-
-1. Go to your GitHub repository → **Settings → Secrets and variables → Actions**
-2. Click **New repository secret**
-3. Name: `AWS_ROLE_ARN`
-4. Value: `arn:aws:iam::{YOUR_ACCOUNT_ID}:role/GitHubActionsDeployRole`
-5. Click **Add secret**
+The project includes **automated deployment** on every push to `main` branch.
 
 ### Workflow Behavior
 
 On every push to `main`:
 1. ✅ Checkout code
-2. ✅ Set up Python 3.12
+2. ✅ Set up Python 3.13
 3. ✅ Install dependencies
 4. ✅ Run unit tests (must pass)
 5. ✅ Build with SAM
@@ -350,6 +316,15 @@ On every push to `main`:
 7. ✅ Print deployed API endpoint
 
 **Deployment fails if tests fail** (safe deployment pattern).
+
+### OIDC Authentication
+
+GitHub Actions uses **OIDC** (OpenID Connect) for secure authentication to AWS without long-lived credentials. The workflow automatically assumes the IAM role configured in the repository secrets.
+
+**Required Secret:**
+- `AWS_ROLE_ARN`: ARN of the IAM role with deployment permissions
+
+For detailed OIDC setup instructions, see the CI/CD section in the original documentation.
 
 ---
 
@@ -374,26 +349,28 @@ This removes:
 
 ```
 url-shortener/
-├── url_shortener/              # Lambda function code
-│   ├── app.py                  # Main handler (routes requests)
-│   ├── shortener.py            # Core logic (validation, code generation)
-│   └── requirements.txt        # Python dependencies (boto3)
+├── url_shortener/                          # Lambda function code
+│   ├── app.py                              # Main handler (routes requests)
+│   ├── shortener.py                        # Core logic (validation, code generation)
+│   └── requirements.txt                    # Python dependencies (boto3)
 ├── tests/
-│   ├── unit/                   # Unit tests (mocked, no AWS)
-│   │   ├── test_shortener.py   # Test validation & code gen
-│   │   └── test_handler.py     # Test Lambda handler logic
-│   └── integration/            # Integration tests (real API)
-│       └── test_api.py         # End-to-end API tests
-├── events/                     # Sample API Gateway events for local testing
+│   ├── unit/                               # Unit tests (mocked, no AWS)
+│   │   ├── test_shortener.py               # Test validation & code gen
+│   │   └── test_handler.py                 # Test Lambda handler logic
+│   └── integration/                        # Integration tests (real API)
+│       └── test_api.py                     # End-to-end API tests
+├── events/                                 # Sample API Gateway events for local testing
 │   ├── create_link.json
 │   ├── get_redirect.json
 │   └── get_stats.json
 ├── .github/workflows/
-│   └── deploy.yml              # CI/CD pipeline
-├── template.yaml               # SAM/CloudFormation infrastructure
-├── samconfig.toml              # SAM deployment configuration
-├── pytest.ini                  # Pytest configuration
-└── README.md                   # This file
+│   └── deploy.yml                          # CI/CD pipeline
+├── URL-Shortener.postman_collection.json   # Postman collection
+├── POSTMAN_GUIDE.md                        # Postman usage guide
+├── template.yaml                           # SAM/CloudFormation infrastructure
+├── samconfig.toml                          # SAM deployment configuration
+├── pytest.ini                              # Pytest configuration
+└── README.md                               # This file
 ```
 
 ---
@@ -432,7 +409,7 @@ pip install -r url_shortener/requirements.txt
 
 **Fix:** Export API endpoint before running tests:
 ```bash
-export API_ENDPOINT=$(sam list stack-outputs --stack-name url-shortener-dev --output json | jq -r '.[] | select(.OutputKey=="ApiEndpoint") | .OutputValue')
+export API_ENDPOINT=https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod
 export RUN_INTEGRATION_TESTS=true
 pytest tests/integration/
 ```
@@ -475,7 +452,3 @@ Built with:
 - [AWS SAM](https://aws.amazon.com/serverless/sam/) - Infrastructure as Code
 - [pytest](https://pytest.org/) - Testing framework
 - [GitHub Actions](https://github.com/features/actions) - CI/CD
-
-# OIDC authentication fixed - 2026-09-15 17:32:01
-
-# OIDC fix attempt 2 - 2026-09-15 17:39:14
