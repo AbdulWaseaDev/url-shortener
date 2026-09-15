@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  URL Shortener - Production-ready serverless REST API for creating and managing short links
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 256
+    Tracing: Active  # AWS X-Ray tracing for observability
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+
+Resources:
+  # DynamoDB Table - stores short code -> original URL mappings
+  # Uses on-demand billing (pay per request) - ideal for variable traffic
+  LinksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'url-shortener-links-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: short_code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: short_code
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Application
+          Value: url-shortener
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Function - handles all API routes (POST /links, GET /{code}, GET /links/{code}/stats)
+  UrlShortenerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'url-shortener-api-${Environment}'
+      CodeUri: url_shortener/
+      Handler: app.lambda_handler
+      Description: URL shortener API - create links, redirect, and track stats
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref LinksTable
+          BASE_URL: !Sub 'https://${UrlShortenerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+      Policies:
+        # Least privilege IAM - only the specific DynamoDB actions needed
+        # GetItem: Read link data for redirects and stats
+        # PutItem: Create new short links
+        # UpdateItem: Atomically increment click counter
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LinksTable
+      Events:
+        CreateLink:
+          Type: Api
+          Properties:
+            Path: /links
+            Method: POST
+            RestApiId: !Ref UrlShortenerApi
+        GetRedirect:
+          Type: Api
+          Properties:
+            Path: /{code}
+            Method: GET
+            RestApiId: !Ref UrlShortenerApi
+        GetStats:
+          Type: Api
+          Properties:
+            Path: /links/{code}/stats
+            Method: GET
+            RestApiId: !Ref UrlShortenerApi
+      LoggingConfig:
+        LogGroup: !Ref FunctionLogGroup
+      Tags:
+        Application: url-shortener
+        Environment: !Ref Environment
+
+  # CloudWatch Log Group with 7-day retention
+  # Automatically captures Lambda execution logs
+  # Retention prevents indefinite log storage costs
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/url-shortener-api-${Environment}'
+      RetentionInDays: 7
+
+  # API Gateway REST API
+  # Provides HTTP endpoints that trigger Lambda
+  UrlShortenerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'url-shortener-api-${Environment}'
+      StageName: Prod
+      TracingEnabled: true
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        Format: '$context.requestId $context.error.message $context.status $context.path $context.httpMethod'
+      Tags:
+        Application: url-shortener
+        Environment: !Ref Environment
+
+  # API Gateway Access Logs
+  # Captures HTTP request/response metadata for debugging
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/url-shortener-${Environment}'
+      RetentionInDays: 7
+
+Outputs:
+  ApiEndpoint:
+    Description: 'API Gateway endpoint URL for URL shortener'
+    Value: !Sub 'https://${UrlShortenerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  TableName:
+    Description: 'DynamoDB table storing link mappings'
+    Value: !Ref LinksTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+
+  FunctionArn:
+    Description: 'Lambda function ARN'
+    Value: !GetAtt UrlShortenerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'

@@ -1,0 +1,7 @@
+{
+  "httpMethod": "GET",
+  "path": "/links/abc123/stats",
+  "pathParameters": {
+    "code": "abc123"
+  }
+}

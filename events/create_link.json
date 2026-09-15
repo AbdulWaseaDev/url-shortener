@@ -1,0 +1,8 @@
+{
+  "httpMethod": "POST",
+  "path": "/links",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"url\": \"https://www.example.com/very/long/url/that/needs/shortening\"}"
+}

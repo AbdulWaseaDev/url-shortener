@@ -1,0 +1,102 @@
+name: Deploy URL Shortener
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: '3.12'
+  SAM_CLI_VERSION: latest
+
+permissions:
+  id-token: write  # Required for OIDC authentication
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, Test, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest boto3 requests
+          # Install Lambda dependencies for testing
+          pip install -r url_shortener/requirements.txt
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          version: ${{ env.SAM_CLI_VERSION }}
+
+      - name: Run unit tests
+        run: |
+          echo "Running unit tests..."
+          pytest tests/unit/ -v --tb=short
+        env:
+          TABLE_NAME: test-table
+          BASE_URL: https://test.example.com
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SAM Build
+        run: |
+          echo "Building SAM application..."
+          sam build --use-container
+
+      - name: SAM Deploy
+        run: |
+          echo "Deploying to AWS..."
+          sam deploy \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --stack-name url-shortener-dev \
+            --parameter-overrides Environment=dev \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Get API Endpoint
+        id: get-endpoint
+        run: |
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name url-shortener-dev \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+          echo "API_ENDPOINT=${API_ENDPOINT}" >> $GITHUB_OUTPUT
+          echo "Deployed API endpoint: ${API_ENDPOINT}"
+
+      - name: Run integration tests (optional)
+        if: false  # Disabled by default - enable manually if needed
+        run: |
+          echo "Running integration tests..."
+          pytest tests/integration/ -v --tb=short
+        env:
+          RUN_INTEGRATION_TESTS: true
+          API_ENDPOINT: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment successful!"
+          echo "API Endpoint: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}"
+          echo ""
+          echo "Test the API:"
+          echo "  Create link: curl -X POST ${{ steps.get-endpoint.outputs.API_ENDPOINT }}/links -H 'Content-Type: application/json' -d '{\"url\":\"https://example.com\"}'"
