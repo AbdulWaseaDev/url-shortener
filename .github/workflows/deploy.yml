@@ -48,6 +48,7 @@ jobs:
         env:
           TABLE_NAME: test-table
           BASE_URL: https://test.example.com
+          AWS_DEFAULT_REGION: us-east-1
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
