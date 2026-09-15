@@ -6,6 +6,7 @@ version = 0.1
 [default]
 [default.global.parameters]
 stack_name = "url-shortener-dev"
+region = "us-east-1"
 
 [default.build.parameters]
 cached = true
@@ -18,8 +19,10 @@ lint = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
-parameter_overrides = "Environment=dev"
+parameter_overrides = "Environment=\"dev\""
 region = "us-east-1"
+s3_prefix = "url-shortener-dev"
+image_repositories = []
 
 [default.package.parameters]
 resolve_s3 = true

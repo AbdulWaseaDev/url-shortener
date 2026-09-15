@@ -57,7 +57,6 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref LinksTable
-          BASE_URL: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
       Policies:
         # Least privilege IAM - only the specific DynamoDB actions needed
         # GetItem: Read link data for redirects and stats

@@ -15,7 +15,7 @@ dynamodb = boto3.client('dynamodb')
 
 # Environment variables
 TABLE_NAME = os.environ.get('TABLE_NAME')
-BASE_URL = os.environ.get('BASE_URL', '')
+# BASE_URL removed - constructed dynamically from event
 
 
 def lambda_handler(event: dict, context: Any) -> dict:
@@ -99,8 +99,12 @@ def create_link(event: dict) -> dict:
                     ConditionExpression='attribute_not_exists(short_code)'
                 )
 
-                # Success - return the short link
-                short_url = f"{BASE_URL}/{short_code}"
+                # Success - construct short URL from event context
+                # Extract API Gateway domain and stage from event
+                request_context = event.get('requestContext', {})
+                domain = request_context.get('domainName', '')
+                stage = request_context.get('stage', 'Prod')
+                short_url = f"https://{domain}/{stage}/{short_code}"
                 return {
                     'statusCode': 201,
                     'headers': {
