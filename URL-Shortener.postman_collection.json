@@ -1,0 +1,92 @@
+{
+  "info": {
+    "name": "URL Shortener API",
+    "description": "Production-ready serverless URL shortener API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Short Link",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"url\": \"https://github.com/AbdulWaseaDev/url-shortener\"\n}"
+        },
+        "url": {
+          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links",
+          "protocol": "https",
+          "host": [
+            "pktmrol6o8",
+            "execute-api",
+            "us-east-1",
+            "amazonaws",
+            "com"
+          ],
+          "path": [
+            "Prod",
+            "links"
+          ]
+        },
+        "description": "Create a new short link. Returns a short code and the full short URL."
+      },
+      "response": []
+    },
+    {
+      "name": "Redirect to Original URL",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/abc123",
+          "protocol": "https",
+          "host": [
+            "pktmrol6o8",
+            "execute-api",
+            "us-east-1",
+            "amazonaws",
+            "com"
+          ],
+          "path": [
+            "Prod",
+            "abc123"
+          ]
+        },
+        "description": "Redirect to the original URL using a short code. Replace 'abc123' with an actual short code from a created link."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Link Statistics",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links/abc123/stats",
+          "protocol": "https",
+          "host": [
+            "pktmrol6o8",
+            "execute-api",
+            "us-east-1",
+            "amazonaws",
+            "com"
+          ],
+          "path": [
+            "Prod",
+            "links",
+            "abc123",
+            "stats"
+          ]
+        },
+        "description": "Get statistics for a short link (clicks, creation time, original URL). Replace 'abc123' with an actual short code."
+      },
+      "response": []
+    }
+  ]
+}
