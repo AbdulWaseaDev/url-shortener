@@ -64,7 +64,7 @@ def validate_create_link_request(body: dict) -> tuple[bool, str | None]:
         - (True, None) if valid
         - (False, error_message) if invalid
     """
-    if not body:
+    if body is None:
         return False, "Request body is required"
 
     if 'url' not in body:
