@@ -1,6 +1,12 @@
 # URL Shortener - Serverless REST API
 
+[![GitHub Stars](https://img.shields.io/github/stars/AbdulWaseaDev/url-shortener?style=social)](https://github.com/AbdulWaseaDev/url-shortener/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/AbdulWaseaDev/url-shortener?style=social)](https://github.com/AbdulWaseaDev/url-shortener/network/members)
+[![Follow @AbdulWaseaDev](https://img.shields.io/github/followers/AbdulWaseaDev?label=Follow&style=social)](https://github.com/AbdulWaseaDev)
+
 A production-ready, serverless URL shortener built with AWS Lambda, API Gateway, and DynamoDB. Create short links, track click statistics, and redirect users—all with zero server management.
+
+**⭐ Star this repo** | **🔗 Share with friends** | **👤 [Follow @AbdulWaseaDev](https://github.com/AbdulWaseaDev)**
 
 ## 🚀 Quick Start
 
@@ -16,6 +22,11 @@ curl -X POST https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links \
 **Using Postman?**
 - Import the ready-to-use collection: `URL-Shortener.postman_collection.json`
 - See [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md) for detailed instructions
+
+**Want shorter URLs?**
+- The current API Gateway domain is 56 characters long
+- Set up a custom domain (e.g., `go.yourdomain.com`) to get truly short URLs
+- See [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) for step-by-step instructions
 
 ## What It Does
 
@@ -435,6 +446,21 @@ If asked to explain this project:
 7. **CI/CD Security:** "GitHub Actions uses OIDC, not long-lived access keys. Each deploy gets a temporary token scoped to this repo. Mitigates risk of leaked credentials."
 
 8. **Observability:** "Lambda logs to CloudWatch, X-Ray tracing enabled for distributed debugging. API Gateway access logs capture HTTP metadata. 7-day retention balances cost and debuggability."
+
+---
+
+## 👨‍💻 Author
+
+**Abdul Wasea**
+
+[![GitHub](https://img.shields.io/badge/GitHub-AbdulWaseaDev-181717?style=for-the-badge&logo=github)](https://github.com/AbdulWaseaDev)
+[![Follow](https://img.shields.io/github/followers/AbdulWaseaDev?label=Follow%20%40AbdulWaseaDev&style=for-the-badge&logo=github)](https://github.com/AbdulWaseaDev)
+
+If you find this project helpful, please consider:
+- ⭐ **Starring** this repository
+- 🍴 **Forking** it for your own projects
+- 👤 **Following** me for more serverless and AWS projects
+- 🔗 **Sharing** with your network
 
 ---
 
