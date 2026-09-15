@@ -8,7 +8,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  PYTHON_VERSION: '3.12'
+  PYTHON_VERSION: '3.13'
 
 permissions:
   id-token: write  # Required for OIDC authentication
