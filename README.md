@@ -372,6 +372,7 @@ url-shortener/
 ├── URL-Shortener.postman_collection.json   # Postman collection
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
 ├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
+├── DEPLOYMENT.md                           # Deployment guide
 ├── template.yaml                           # SAM/CloudFormation infrastructure
 ├── samconfig.toml                          # SAM deployment configuration
 ├── pytest.ini                              # Pytest configuration
