@@ -546,11 +546,18 @@ MIT License
 
 ---
 
-## Credits
+## Built With
 
-Built with:
-- [AWS Lambda](https://aws.amazon.com/lambda/) - Serverless compute
-- [Amazon DynamoDB](https://aws.amazon.com/dynamodb/) - NoSQL database
-- [AWS SAM](https://aws.amazon.com/serverless/sam/) - Infrastructure as Code
-- [pytest](https://pytest.org/) - Testing framework
-- [GitHub Actions](https://github.com/features/actions) - CI/CD
+| Layer | Technology | Used for |
+|---|---|---|
+| Compute | [AWS Lambda](https://aws.amazon.com/lambda/) (Python 3.13) | Request handling and business logic |
+| API | [Amazon API Gateway](https://aws.amazon.com/api-gateway/) | REST routes, custom domain, API keys, usage plans, throttling |
+| Database | [Amazon DynamoDB](https://aws.amazon.com/dynamodb/) | Link storage, atomic click counters, point-in-time recovery |
+| TLS | [AWS Certificate Manager](https://aws.amazon.com/certificate-manager/) | Certificates for the custom domains |
+| DNS | [Cloudflare](https://www.cloudflare.com/dns/) | DNS for `berlintechs.com` |
+| Monitoring | [Amazon CloudWatch](https://aws.amazon.com/cloudwatch/) and [AWS X-Ray](https://aws.amazon.com/xray/) | Logs, alarms and tracing |
+| Alerts | [Amazon SNS](https://aws.amazon.com/sns/) | Email notifications when alarms fire |
+| Configuration | [AWS Systems Manager Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html) | Alert email, kept out of the repo |
+| Infrastructure as Code | [AWS SAM](https://aws.amazon.com/serverless/sam/) / CloudFormation | Staging and production stacks |
+| CI/CD | [GitHub Actions](https://github.com/features/actions) with OIDC | Build, staging tests, promotion to production |
+| Testing | [pytest](https://pytest.org/) | Unit, integration and smoke tests |
