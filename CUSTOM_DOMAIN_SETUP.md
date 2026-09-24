@@ -1,334 +1,135 @@
-# Setting Up a Custom Domain for Your URL Shortener
+# Custom Domain Setup
 
-## Why You Need a Custom Domain
-
-Currently, your short URLs look like this:
+Without a custom domain, short links use the API Gateway URL:
 ```
-https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK
+https://abc123xyz.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK
 ```
 
-With a custom domain, they can be much shorter:
+With one, they look like this project's production links:
 ```
-https://go.yourdomain.com/a3X9mK
-or
-https://s.yourdomain.com/a3X9mK
+https://url-shortener.berlintechs.com/a3X9mK
 ```
+
+The custom domain is part of `template.yaml`. You request a certificate, set two parameters, deploy, and add a DNS record. The Lambda builds short URLs from whatever domain the request came in on, so no code or environment variable changes are needed.
+
+The steps below use Cloudflare for DNS, as this project does. Any DNS provider that supports CNAME records works the same way.
 
 ---
 
-## Prerequisites
+## Step 1: Request a certificate
 
-1. **Own a domain** (e.g., purchased from Route 53, GoDaddy, Namecheap, etc.)
-2. **AWS Certificate Manager (ACM)** certificate for your domain
-3. **Route 53 hosted zone** (if using Route 53 for DNS)
-
----
-
-## Step 1: Request SSL Certificate in ACM
-
-1. Go to **AWS Certificate Manager** in `us-east-1` region (important!)
-2. Click **Request Certificate**
-3. Choose **Request a public certificate**
-4. Enter domain names:
-   - `go.yourdomain.com` (or your preferred subdomain)
-5. Validation method: **DNS validation** (recommended)
-6. Click **Request**
-7. Click **Create records in Route 53** (if using Route 53)
-8. Wait for status to become **Issued** (~5-10 minutes)
-
----
-
-## Step 2: Create Custom Domain in API Gateway
-
-### Via AWS Console:
-
-1. Go to **API Gateway** → **Custom domain names**
-2. Click **Create**
-3. Configure:
-   - **Domain name:** `go.yourdomain.com`
-   - **ACM certificate:** Select the certificate from Step 1
-   - **Endpoint type:** Regional
-4. Click **Create domain name**
-5. **Note the API Gateway domain name** (e.g., `d-abc123.execute-api.us-east-1.amazonaws.com`)
-
-### Via AWS CLI:
+The certificate must be in the **same region as the stack** (regional endpoint), for example `us-east-1`:
 
 ```bash
-aws apigateway create-domain-name \
-  --domain-name go.yourdomain.com \
-  --regional-certificate-arn arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID \
-  --endpoint-configuration types=REGIONAL \
+aws acm request-certificate \
+  --domain-name url-shortener.yourdomain.com \
+  --validation-method DNS \
   --region us-east-1
 ```
 
----
+Get the validation record:
+```bash
+aws acm describe-certificate --region us-east-1 --certificate-arn CERT_ARN \
+  --query 'Certificate.DomainValidationOptions[0].ResourceRecord'
+```
 
-## Step 3: Add Base Path Mapping
+## Step 2: Add the DNS records for validation
 
-Map your custom domain to the API Gateway stage.
+In Cloudflare, add:
 
-### Via AWS Console:
+| Type | Name | Value | Proxy |
+|---|---|---|---|
+| CNAME | the validation name, without `.yourdomain.com` | the validation value | **DNS only** |
 
-1. In the custom domain, go to **API mappings** tab
-2. Click **Configure API mappings**
-3. Click **Add new mapping**
-4. Configure:
-   - **API:** Select `url-shortener-prod` (or your stack name)
-   - **Stage:** `Prod`
-   - **Path:** Leave empty (so short codes work directly: `go.yourdomain.com/abc123`)
-5. Click **Save**
+**Check for CAA records first.** If your domain has CAA records (Cloudflare adds them for its own certificates), Amazon must be allowed or validation fails with `CAA_ERROR`. Add a CAA record for just this subdomain:
 
-### Via AWS CLI:
+| Type | Name | Flags | Tag | CA domain name |
+|---|---|---|---|---|
+| CAA | `url-shortener` | `0` | Only allow specific hostnames (`issue`) | `amazon.com` |
+
+Check whether the domain has CAA records:
+```bash
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=yourdomain.com&type=CAA'
+```
+
+Wait for the certificate to be issued (usually a few minutes):
+```bash
+aws acm wait certificate-validated --region us-east-1 --certificate-arn CERT_ARN
+```
+
+A certificate that failed validation can't be retried. Fix the DNS, delete it, and request a new one; the new request normally reuses the same validation record.
+
+## Step 3: Set the domain in samconfig.toml
+
+In the environment's section of `samconfig.toml`:
+
+```toml
+parameter_overrides = "Environment=\"prod\" DomainName=\"url-shortener.yourdomain.com\" CertificateArn=\"arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID\""
+```
+
+This creates an `AWS::ApiGateway::DomainName` (regional, TLS 1.2) and a base path mapping to the `Prod` stage at the root, so links have no `/Prod` prefix.
+
+## Step 4: Deploy and point DNS at it
 
 ```bash
-# Get API ID
-API_ID=$(aws cloudformation describe-stacks \
-  --stack-name url-shortener-prod \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
-  --output text | cut -d'/' -f3 | cut -d'.' -f1)
-
-# Create base path mapping
-aws apigateway create-base-path-mapping \
-  --domain-name go.yourdomain.com \
-  --rest-api-id $API_ID \
-  --stage Prod \
-  --region us-east-1
+sam build && sam deploy --config-env prod
+sam list stack-outputs --stack-name url-shortener-prod   # CustomDomainTarget
 ```
 
----
+In Cloudflare, add:
 
-## Step 4: Configure DNS (Route 53)
+| Type | Name | Target | Proxy |
+|---|---|---|---|
+| CNAME | `url-shortener` | `CustomDomainTarget` output, e.g. `d-abc123.execute-api.us-east-1.amazonaws.com` | **DNS only** |
 
-Point your custom domain to API Gateway.
+Keep it **DNS only**. If you turn on Cloudflare's proxy, set SSL/TLS mode to **Full (strict)**, otherwise you can get redirect loops or certificate errors.
 
-### Via AWS Console:
-
-1. Go to **Route 53** → **Hosted zones**
-2. Select your domain's hosted zone
-3. Click **Create record**
-4. Configure:
-   - **Record name:** `go` (for `go.yourdomain.com`)
-   - **Record type:** `A`
-   - **Alias:** Toggle ON
-   - **Route traffic to:**
-     - Choose **Alias to API Gateway API**
-     - Region: `us-east-1`
-     - Select your custom domain
-5. Click **Create records**
-
-### Via AWS CLI:
+## Step 5: Test
 
 ```bash
-# Get API Gateway domain name
-APIGW_DOMAIN=$(aws apigateway get-domain-name \
-  --domain-name go.yourdomain.com \
-  --query 'regionalDomainName' \
-  --output text)
-
-# Get hosted zone ID
-APIGW_ZONE_ID=$(aws apigateway get-domain-name \
-  --domain-name go.yourdomain.com \
-  --query 'regionalHostedZoneId' \
-  --output text)
-
-# Create Route 53 record
-aws route53 change-resource-record-sets \
-  --hosted-zone-id YOUR_HOSTED_ZONE_ID \
-  --change-batch '{
-    "Changes": [{
-      "Action": "CREATE",
-      "ResourceRecordSet": {
-        "Name": "go.yourdomain.com",
-        "Type": "A",
-        "AliasTarget": {
-          "HostedZoneId": "'$APIGW_ZONE_ID'",
-          "DNSName": "'$APIGW_DOMAIN'",
-          "EvaluateTargetHealth": false
-        }
-      }
-    }]
-  }'
-```
-
-### Using External DNS Provider (GoDaddy, Namecheap, etc.):
-
-If your domain is not in Route 53, create a CNAME record:
-- **Type:** CNAME
-- **Name:** go
-- **Value:** The API Gateway domain name from Step 2 (e.g., `d-abc123.execute-api.us-east-1.amazonaws.com`)
-
----
-
-## Step 5: Update Lambda Function
-
-Update the Lambda function to return the custom domain in short URLs.
-
-### Option 1: Add BASE_URL Environment Variable
-
-```bash
-aws lambda update-function-configuration \
-  --function-name url-shortener-api-dev \
-  --environment "Variables={TABLE_NAME=url-shortener-links-dev,BASE_URL=https://go.yourdomain.com}"
-```
-
-### Option 2: Update SAM Template
-
-Edit `template.yaml`:
-
-```yaml
-Environment:
-  Variables:
-    TABLE_NAME: !Ref LinksTable
-    BASE_URL: https://go.yourdomain.com  # Add this line
-```
-
-Then deploy:
-```bash
-sam build && sam deploy
-```
-
-### Option 3: Update Python Code
-
-Edit `url_shortener/shortener.py`:
-
-```python
-# Change this
-base_url = os.environ.get('BASE_URL', '')
-
-# To this
-base_url = 'https://go.yourdomain.com'
-```
-
----
-
-## Step 6: Test Your Custom Domain
-
-```bash
-# Create a short link
-curl -X POST https://go.yourdomain.com/links \
-  -H 'Content-Type: application/json' \
+curl -X POST https://url-shortener.yourdomain.com/links \
+  -H 'Content-Type: application/json' -H 'x-api-key: YOUR_API_KEY' \
   -d '{"url": "https://github.com/AbdulWaseaDev/url-shortener"}'
+# "short_url": "https://url-shortener.yourdomain.com/a3X9mK"
 
-# Response should include custom domain
-{
-  "short_code": "a3X9mK",
-  "short_url": "https://go.yourdomain.com/a3X9mK",
-  "original_url": "https://github.com/AbdulWaseaDev/url-shortener"
-}
-
-# Test redirect
-curl -L https://go.yourdomain.com/a3X9mK
+curl -i https://url-shortener.yourdomain.com/a3X9mK   # 302
 ```
+
+---
+
+## Moving a domain to another stack
+
+A domain name can belong to only one API Gateway custom domain in a region. To move it (for example from an old stack to a new one):
+
+1. Deploy the old stack with `DomainName=""` to release the domain.
+2. Deploy the new stack with the domain.
+3. Update the CNAME to the new stack's `CustomDomainTarget`.
+
+Links are unreachable between steps 1 and 3, so have the DNS change ready. Create both changesets first (`sam deploy --no-execute-changeset`) and execute them back to back.
 
 ---
 
 ## Troubleshooting
 
-### DNS not resolving
+### Certificate `FAILED` with `CAA_ERROR`
+Add the CAA record from Step 2, then request a new certificate.
 
-Wait 5-15 minutes for DNS propagation, then check:
+### Domain doesn't resolve
+Check the record is live:
 ```bash
-nslookup go.yourdomain.com
-dig go.yourdomain.com
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=url-shortener.yourdomain.com&type=CNAME'
 ```
 
-### Certificate validation stuck
+### 403 Forbidden on every route
+The base path mapping is missing or points at the wrong API. Check the stack has `CustomDomainMapping` and the CNAME targets this stack's `CustomDomainTarget`.
 
-If using DNS validation:
-1. Ensure CNAME records are created in your DNS
-2. Wait up to 30 minutes for validation
-3. Check ACM console for validation status
-
-### API Gateway returns 403 Forbidden
-
-- Ensure base path mapping is created
-- Verify API stage is `Prod` not `prod`
-- Check custom domain is mapped to correct API
-
-### Short URLs still show old domain
-
-Update Lambda environment variable or redeploy code with new BASE_URL.
+### Short URLs contain `/Prod/`
+The request came in through the `execute-api` URL instead of the custom domain. Use the custom domain.
 
 ---
 
-## Cost Considerations
+## Cost
 
-- **ACM Certificate:** Free
-- **Custom Domain Name:** $0 (no additional charge)
-- **Route 53 Hosted Zone:** ~$0.50/month
-- **Route 53 Queries:** $0.40 per million queries
-
-**Total additional cost:** ~$0.50-1.00/month
-
----
-
-## Popular Short Domain Providers
-
-If you don't own a domain, consider these short domain providers:
-
-1. **Short.io** - Provides short domains like `short.link`
-2. **Rebrandly** - Custom short domains
-3. **TinyURL** - Classic short domain service
-4. **is.gd** - Free short domain
-
-Or purchase a short domain (2-5 characters):
-- Check availability: [Namecheap](https://www.namecheap.com), [GoDaddy](https://www.godaddy.com)
-- Examples: `go.link`, `s.link`, `u.to`, `myco.de`
-
----
-
-## Example Complete Setup
-
-```bash
-# 1. Request certificate (wait for validation)
-aws acm request-certificate \
-  --domain-name go.yourdomain.com \
-  --validation-method DNS \
-  --region us-east-1
-
-# 2. Create custom domain
-aws apigateway create-domain-name \
-  --domain-name go.yourdomain.com \
-  --regional-certificate-arn arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID \
-  --endpoint-configuration types=REGIONAL \
-  --region us-east-1
-
-# 3. Create base path mapping
-aws apigateway create-base-path-mapping \
-  --domain-name go.yourdomain.com \
-  --rest-api-id YOUR_API_ID \
-  --stage Prod
-
-# 4. Update Lambda environment
-aws lambda update-function-configuration \
-  --function-name url-shortener-api-dev \
-  --environment "Variables={TABLE_NAME=url-shortener-links-dev,BASE_URL=https://go.yourdomain.com}"
-
-# 5. Create Route 53 record (done via console or CLI as shown above)
-```
-
----
-
-## Benefits of Custom Domain
-
-✅ **Shorter URLs:** `go.yourdomain.com/abc123` vs `pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/abc123`
-
-✅ **Branding:** Use your company/personal brand
-
-✅ **Trust:** Users trust branded domains more than random API Gateway URLs
-
-✅ **Flexibility:** Can change backend without changing URLs
-
-✅ **Professional:** Better for production use
-
----
-
-## Without a Custom Domain
-
-If you don't want to set up a custom domain, the current API still works perfectly fine for:
-- Testing and development
-- Internal tools
-- Technical audiences who don't mind longer URLs
-- Learning and portfolio projects
-
-The functionality is identical—only the URL length differs!
+ACM certificates and API Gateway custom domains are free. You only pay for the domain registration itself.

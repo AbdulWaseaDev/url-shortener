@@ -1,461 +1,230 @@
-# URL Shortener - Complete Deployment Guide
+# URL Shortener - Deployment Guide
 
-This guide walks you through deploying the URL shortener to AWS from scratch.
+How to deploy your own copy of the URL shortener from scratch: a **staging** and a **production** stack, each on its own custom domain, with email alerts and a GitHub Actions pipeline that tests on staging before promoting to production.
 
-## Prerequisites Check
-
-Before starting, verify you have:
-
-```bash
-# Check AWS CLI
-aws --version
-# Should show: aws-cli/2.x.x or higher
-
-# Check AWS credentials are configured
-aws sts get-caller-identity
-# Should show your AWS account ID and user ARN
-
-# Check SAM CLI
-sam --version
-# Should show: SAM CLI, version 1.x.x or higher
-
-# Check Python
-python --version
-# Should show: Python 3.12.x or higher
-
-# Check Docker (required for sam build --use-container)
-docker --version
-# Should show: Docker version 20.x.x or higher
-```
-
-If any command fails, install the missing tool first.
+Examples use this project's names (`berlintechs.com`, `us-east-1`). Replace them with your own.
 
 ---
 
-## Step 1: Deploy to AWS (First Time)
-
-Navigate to the project directory:
+## 1. Prerequisites
 
 ```bash
-cd C:/git-repos/url-shortener
+aws --version              # AWS CLI v2
+aws sts get-caller-identity  # credentials configured
+sam --version              # SAM CLI
+python --version           # Python 3.13+
+docker --version           # for sam build --use-container (CI uses it)
 ```
 
-### 1.1 Build the Application
+You also need a domain whose DNS you control (this project uses Cloudflare).
+
+---
+
+## 2. One-time setup
+
+### 2.1 Alert email
+
+Alarm notifications go to an address stored in SSM Parameter Store, so it never appears in the repo. The deploy fails if this parameter is missing.
 
 ```bash
+aws ssm put-parameter --name /url-shortener/alert-email --type String \
+  --value you@example.com --region us-east-1
+```
+
+> **Git Bash on Windows:** prefix the command with `MSYS_NO_PATHCONV=1`, otherwise the `/url-shortener/...` name is rewritten into a Windows path.
+
+### 2.2 Certificates for both domains
+
+Request one certificate per environment (see [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) for the DNS records, including the CAA record many domains need):
+
+```bash
+aws acm request-certificate --domain-name url-shortener-staging.yourdomain.com \
+  --validation-method DNS --region us-east-1
+aws acm request-certificate --domain-name url-shortener.yourdomain.com \
+  --validation-method DNS --region us-east-1
+```
+
+Wait until both show `ISSUED`:
+```bash
+aws acm list-certificates --region us-east-1 \
+  --query 'CertificateSummaryList[].[DomainName,Status]' --output table
+```
+
+### 2.3 Point samconfig.toml at your domains
+
+In `samconfig.toml`, set `DomainName` and `CertificateArn` in the `[default]`/`[staging]` and `[prod]` sections to your domains and the certificate ARNs from 2.2. Set `DomainName=""` to deploy an environment without a custom domain.
+
+---
+
+## 3. Deploy
+
+```bash
+# Build once
 sam build
+
+# Staging (default config) - review the changeset, then confirm
+sam deploy
+
+# Production
+sam deploy --config-env prod
 ```
 
-**What this does:**
-- Downloads Python dependencies (boto3)
-- Packages Lambda function code
-- Validates template.yaml syntax
+Each stack creates:
 
-**Expected output:**
-```
-Build Succeeded
+| Resource | Notes |
+|---|---|
+| DynamoDB table `url-shortener-links-<env>` | On-demand, point-in-time recovery, **retained and deletion-protected** |
+| Lambda `url-shortener-api-<env>` | Python 3.13, X-Ray tracing |
+| API Gateway REST API | 3 routes, stage throttling, API key + usage plan on `POST /links` |
+| Custom domain + base path mapping | Only when `DomainName` is set |
+| 4 CloudWatch alarms | 5xx, errors, throttles, p99 latency |
+| SNS topic `url-shortener-<env>-alerts` | Emails the SSM alert address |
 
-Built Artifacts  : .aws-sam/build
-Built Template   : .aws-sam/build/template.yaml
-```
+### 3.1 After the first deploy of each stack
 
-### 1.2 Deploy with Guided Setup
-
-```bash
-sam deploy --guided
-```
-
-**You'll be prompted for:**
-
-1. **Stack Name:** `url-shortener-staging` (recommended)
-2. **AWS Region:** `us-east-1` (or your preferred region)
-3. **Parameter Environment:** `staging`
-4. **Confirm changes before deploy:** `Y`
-5. **Allow SAM CLI IAM role creation:** `Y`
-6. **Disable rollback:** `N`
-7. **UrlShortenerFunction may not have authorization defined, Is this okay?** `Y`
-8. **Save arguments to configuration file:** `Y`
-9. **SAM configuration file:** `samconfig.toml` (default)
-10. **SAM configuration environment:** `default`
-
-**Deployment takes ~2-3 minutes.** You'll see:
-- Creating CloudFormation stack
-- Creating DynamoDB table
-- Creating Lambda function
-- Creating API Gateway
-- Creating IAM roles and log groups
-
-**Expected output:**
-```
-Successfully created/updated stack - url-shortener-prod in us-east-1
-
-CloudFormation outputs from deployed stack
------------------------------------------------------------
-Outputs
------------------------------------------------------------
-Key                 ApiEndpoint
-Description         API Gateway endpoint URL for URL shortener
-Value               https://abc123xyz.execute-api.us-east-1.amazonaws.com/Prod
-
-Key                 TableName
-Description         DynamoDB table storing link mappings
-Value               url-shortener-links-dev
-
-Key                 FunctionArn
-Description         Lambda function ARN
-Value               arn:aws:lambda:us-east-1:123456789012:function:url-shortener-api-dev
------------------------------------------------------------
-```
-
-**🎉 Your API is now live!** Copy the `ApiEndpoint` value.
-
----
-
-## Step 2: Test the Deployed API
-
-### 2.1 Create a Short Link
-
-```bash
-# Replace with your actual API endpoint
-export API_ENDPOINT="https://abc123xyz.execute-api.us-east-1.amazonaws.com/Prod"
-
-# Create a short link
-curl -X POST $API_ENDPOINT/links \
-  -H 'Content-Type: application/json' \
-  -d '{"url": "https://www.github.com/AbdulWaseaDev"}'
-```
-
-**Expected response:**
-```json
-{
-  "short_code": "a3X9mK",
-  "short_url": "https://abc123xyz.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK",
-  "original_url": "https://www.github.com/AbdulWaseaDev"
-}
-```
-
-### 2.2 Test the Redirect
-
-```bash
-# Use the short_code from previous response
-curl -L $API_ENDPOINT/a3X9mK
-```
-
-You should be redirected to the original URL.
-
-### 2.3 Check Statistics
-
-```bash
-curl $API_ENDPOINT/links/a3X9mK/stats
-```
-
-**Expected response:**
-```json
-{
-  "short_code": "a3X9mK",
-  "original_url": "https://www.github.com/AbdulWaseaDev",
-  "click_count": 1,
-  "created_at": "2024-01-15T10:30:00.123456"
-}
-```
-
----
-
-## Step 3: Run Tests Locally
-
-### 3.1 Install Test Dependencies
-
-```bash
-pip install pytest boto3 requests
-```
-
-### 3.2 Run Unit Tests
-
-```bash
-# Unit tests don't require AWS credentials
-pytest tests/unit/ -v
-```
-
-**Expected output:**
-```
-tests/unit/test_shortener.py::TestGenerateShortCode::test_default_length PASSED
-tests/unit/test_shortener.py::TestGenerateShortCode::test_alphanumeric_only PASSED
-tests/unit/test_shortener.py::TestIsValidUrl::test_valid_http_url PASSED
-...
-======================== 15 passed in 0.45s ========================
-```
-
-### 3.3 Run Integration Tests (Optional)
-
-```bash
-# Set environment variables
-export API_ENDPOINT="https://abc123xyz.execute-api.us-east-1.amazonaws.com/Prod"
-export RUN_INTEGRATION_TESTS=true
-
-# Run integration tests
-pytest tests/integration/ -v
-```
-
-These tests create real links in your deployed API and verify the complete flow.
-
----
-
-## Step 4: Set Up GitHub Actions CI/CD (Optional)
-
-If you want automatic deployment on push to GitHub:
-
-### 4.1 Create IAM OIDC Provider
-
-**In AWS Console:**
-
-1. Go to **IAM → Identity Providers → Add Provider**
-2. Provider Type: `OpenID Connect`
-3. Provider URL: `https://token.actions.githubusercontent.com`
-4. Audience: `sts.amazonaws.com`
-5. Click **Add Provider**
-
-### 4.2 Create IAM Role
-
-1. Go to **IAM → Roles → Create Role**
-2. Trusted Entity Type: `Web Identity`
-3. Identity Provider: `token.actions.githubusercontent.com`
-4. Audience: `sts.amazonaws.com`
-5. Attach policies:
-   - `AWSCloudFormationFullAccess`
-   - `IAMFullAccess`
-   - `AmazonS3FullAccess`
-   - `AWSLambda_FullAccess`
-   - `AmazonDynamoDBFullAccess`
-   - `AmazonAPIGatewayAdministrator`
-   - `CloudWatchLogsFullAccess`
-6. Role name: `GitHubActionsDeployRole`
-7. Click **Create Role**
-
-### 4.3 Update Trust Policy
-
-Click on the role → **Trust Relationships → Edit Trust Policy**:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/url-shortener:ref:refs/heads/main"
-        }
-      }
-    }
-  ]
-}
-```
-
-Replace:
-- `YOUR_ACCOUNT_ID` - Your 12-digit AWS account ID
-- `YOUR_GITHUB_USERNAME` - Your GitHub username
-
-### 4.4 Add GitHub Secret
-
-1. Push code to GitHub:
+1. **DNS:** create a CNAME for the domain pointing at the stack's `CustomDomainTarget` output, **DNS only** (not proxied):
    ```bash
-   cd C:/git-repos/url-shortener
-   git init
-   git add .
-   git commit -m "Initial commit: URL shortener serverless app"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/url-shortener.git
-   git push -u origin main
+   sam list stack-outputs --stack-name url-shortener-prod
+   ```
+2. **Alerts:** click the link in the "AWS Notification - Subscription Confirmation" email. Alerts only arrive after confirming.
+3. **API key:** read the key for creating links:
+   ```bash
+   KEY_ID=$(aws cloudformation describe-stacks --stack-name url-shortener-prod \
+     --query 'Stacks[0].Outputs[?OutputKey==`ApiKeyId`].OutputValue' --output text)
+   aws apigateway get-api-key --api-key "$KEY_ID" --include-value --query value --output text
+   ```
+   A brand-new key can return `403` for about a minute while API Gateway propagates it.
+
+### 3.2 Test it
+
+```bash
+BASE=https://url-shortener.yourdomain.com
+KEY=your-api-key
+
+curl -X POST $BASE/links -H 'Content-Type: application/json' -H "x-api-key: $KEY" \
+  -d '{"url": "https://github.com/AbdulWaseaDev"}'
+# {"short_code": "a3X9mK", "short_url": "https://url-shortener.yourdomain.com/a3X9mK", ...}
+
+curl -i $BASE/a3X9mK                 # 302 with Location header
+curl $BASE/links/a3X9mK/stats        # click_count: 1
+```
+
+---
+
+## 4. CI/CD with GitHub Actions
+
+The workflow (`.github/workflows/deploy.yml`) runs on every push to `main`:
+
+1. **Build** - unit tests, `sam build`, upload the build artifact
+2. **Staging** - deploy `url-shortener-staging`, run integration tests (test links are deleted afterwards)
+3. **Production** - only if staging passed: deploy `url-shortener-prod`, run read-only smoke tests
+
+### 4.1 OIDC provider and role
+
+1. **IAM → Identity providers → Add provider**: OpenID Connect, URL `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
+2. **IAM → Roles → Create role** (Web identity, the provider above), named `GitHubActionsDeployRole`, with these managed policies:
+   - `AWSCloudFormationFullAccess`, `IAMFullAccess`, `AmazonS3FullAccess`
+   - `AWSLambda_FullAccess`, `AmazonDynamoDBFullAccess`, `AmazonAPIGatewayAdministrator`, `CloudWatchLogsFullAccess`
+3. Add an inline policy for alerts, alarms and the alert-email parameter (replace `ACCOUNT_ID`):
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       { "Effect": "Allow", "Action": ["sns:CreateTopic", "sns:DeleteTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:ListSubscriptionsByTopic", "sns:TagResource", "sns:UntagResource", "sns:ListTagsForResource"],
+         "Resource": "arn:aws:sns:us-east-1:ACCOUNT_ID:url-shortener-*" },
+       { "Effect": "Allow", "Action": ["sns:Unsubscribe", "sns:GetSubscriptionAttributes", "cloudwatch:DescribeAlarms"], "Resource": "*" },
+       { "Effect": "Allow", "Action": ["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource"],
+         "Resource": "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:url-shortener-*" },
+       { "Effect": "Allow", "Action": ["ssm:GetParameter", "ssm:GetParameters"],
+         "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:parameter/url-shortener/*" }
+     ]
+   }
+   ```
+4. **Trust policy:** the pipeline's jobs run in the `staging` and `production` GitHub environments, so the subject must allow more than the `main` branch. Use a wildcard for the repo:
+   ```json
+   "Condition": {
+     "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+     "StringLike": { "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/url-shortener:*" }
+   }
    ```
 
-2. In GitHub repo → **Settings → Secrets and variables → Actions**
-3. Click **New repository secret**
-4. Name: `AWS_ROLE_ARN`
-5. Value: `arn:aws:iam::YOUR_ACCOUNT_ID:role/GitHubActionsDeployRole`
-6. Click **Add secret**
+### 4.2 GitHub secret
 
-### 4.5 Test GitHub Actions
+Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+- `AWS_ROLE_ARN` = `arn:aws:iam::ACCOUNT_ID:role/GitHubActionsDeployRole`
 
-Push to main branch - the workflow will automatically:
-1. Run unit tests
-2. Build with SAM
-3. Deploy to AWS
-
-Check **Actions** tab in GitHub to see the workflow run.
+Push to `main` and watch the **Actions** tab. If staging fails, production is skipped.
 
 ---
 
-## Step 5: Subsequent Deployments
+## 5. Day-to-day
 
-After the first deployment, you can deploy changes quickly:
-
-```bash
-# Make code changes...
-
-# Build
-sam build
-
-# Deploy (uses saved config from samconfig.toml)
-sam deploy
-```
+- **Ship a change:** push to `main`. CI handles staging, tests and production.
+- **Deploy by hand:** `sam build && sam deploy` (staging), then `sam deploy --config-env prod`.
+- **Logs:** `sam logs --stack-name url-shortener-prod --tail`
+- **Stack events:** `aws cloudformation describe-stack-events --stack-name url-shortener-prod`
+- **Look at a link:**
+  ```bash
+  aws dynamodb get-item --table-name url-shortener-links-prod \
+    --key '{"short_code": {"S": "a3X9mK"}}'
+  ```
 
 ---
 
-## Monitoring & Debugging
-
-### View Lambda Logs
+## 6. Cleanup
 
 ```bash
-# Tail logs in real-time
-sam logs --stack-name url-shortener-prod --tail
-
-# View recent logs
-sam logs --stack-name url-shortener-prod --start-time '10min ago'
-```
-
-### View CloudFormation Stack
-
-```bash
-# List all stack outputs
-sam list stack-outputs --stack-name url-shortener-prod
-
-# View stack events
-aws cloudformation describe-stack-events --stack-name url-shortener-prod
-```
-
-### View DynamoDB Table
-
-```bash
-# Get table name
-TABLE_NAME=$(aws cloudformation describe-stacks \
-  --stack-name url-shortener-prod \
-  --query 'Stacks[0].Outputs[?OutputKey==`TableName`].OutputValue' \
-  --output text)
-
-# Scan table (shows all items)
-aws dynamodb scan --table-name $TABLE_NAME
-
-# Get specific item
-aws dynamodb get-item \
-  --table-name $TABLE_NAME \
-  --key '{"short_code": {"S": "a3X9mK"}}'
-```
-
----
-
-## Cleanup
-
-To delete all AWS resources:
-
-```bash
+sam delete --stack-name url-shortener-staging
 sam delete --stack-name url-shortener-prod
 ```
 
-**⚠️ This deletes:**
-- Lambda function
-- API Gateway
-- DynamoDB table (all data is lost!)
-- CloudWatch logs
-- IAM role
+The **tables are kept** (retained and deletion-protected). To delete one:
+```bash
+aws dynamodb update-table --table-name url-shortener-links-prod --no-deletion-protection-enabled
+aws dynamodb delete-table --table-name url-shortener-links-prod
+```
 
-Confirm with `y` when prompted.
-
----
-
-## Cost Estimate
-
-For **low traffic** (< 1,000 requests/day):
-
-| Service | Usage | Cost |
-|---------|-------|------|
-| Lambda | First 1M requests free | $0.00 |
-| DynamoDB | First 25GB storage free | $0.00 |
-| API Gateway | First 1M calls free (12 months) | $0.00 |
-| CloudWatch Logs | 5GB free | $0.00 |
-| **Total** | | **~$0-2/month** |
-
-For **moderate traffic** (10,000 requests/day):
-
-| Service | Usage | Cost |
-|---------|-------|------|
-| Lambda | 300,000 requests/month | ~$0.06 |
-| DynamoDB | On-demand, ~1M reads/writes | ~$1.25 |
-| API Gateway | 300,000 calls | ~$1.05 |
-| CloudWatch Logs | 1GB/month | ~$0.50 |
-| **Total** | | **~$3/month** |
+Also remove, if no longer needed: the ACM certificates, the `/url-shortener/alert-email` parameter, and the DNS records.
 
 ---
 
-## Troubleshooting
+## 7. Cost
+
+Per environment, at low traffic, this is roughly **$0/month**:
+
+| Service | Free allowance |
+|---|---|
+| Lambda | 1M requests/month (always free) |
+| DynamoDB on-demand | 25 GB storage; requests cost fractions of a cent at this volume |
+| API Gateway | 1M requests/month for the first 12 months, then $3.50 per million |
+| CloudWatch alarms | 10 alarms free (4 per stack), then $0.10/alarm/month |
+| SNS email | 1,000 emails/month |
+| ACM certificates, custom domains, SSM standard parameters | Free |
+
+---
+
+## 8. Troubleshooting
+
+### Certificate status `FAILED` with `CAA_ERROR`
+Your domain has CAA records that don't allow Amazon. Add a CAA record for the subdomain (`0 issue "amazon.com"`), delete the failed certificate and request a new one. See [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md).
+
+### Deploy fails: "Parameter /url-shortener/alert-email not found"
+Create the parameter (step 2.1).
+
+### `POST /links` returns 403 right after a deploy
+A new API key takes about a minute to become active. If it persists, check you're using the key for the right stack.
 
 ### "Unable to upload artifact"
-
-**Solution:** SAM couldn't create S3 bucket. Use:
 ```bash
-sam deploy --guided --resolve-s3
+sam deploy --resolve-s3
 ```
 
-### "AccessDeniedException"
+### `--parameter-overrides` with empty values on PowerShell
+PowerShell mangles quotes, so `DomainName=""` may not arrive as empty. Put the parameters in a YAML file and pass `--parameter-overrides file://params.yaml`.
 
-**Solution:** AWS credentials don't have sufficient permissions. Verify:
+### Stack events show `CREATE_FAILED`
 ```bash
-aws sts get-caller-identity
+aws cloudformation describe-stack-events --stack-name url-shortener-prod \
+  --query "StackEvents[?contains(ResourceStatus,'FAILED')].[LogicalResourceId,ResourceStatusReason]"
 ```
-
-Ensure your IAM user/role has CloudFormation, Lambda, DynamoDB, and API Gateway permissions.
-
-### "CREATE_FAILED" during deployment
-
-**Check error:**
-```bash
-aws cloudformation describe-stack-events --stack-name url-shortener-prod
-```
-
-Common issues:
-- DynamoDB table name already exists (delete old stack first)
-- Region quota limits reached
-
-### Unit tests fail
-
-**Solution:** Install dependencies:
-```bash
-pip install -r url_shortener/requirements.txt
-pip install pytest
-```
-
----
-
-## What You've Built
-
-✅ **Fully serverless URL shortener**
-✅ **Production-ready with error handling**
-✅ **Comprehensive test suite (unit + integration)**
-✅ **CI/CD pipeline with GitHub Actions**
-✅ **Infrastructure as Code (SAM/CloudFormation)**
-✅ **Least-privilege IAM permissions**
-✅ **Atomic click counter (no race conditions)**
-✅ **Observability (CloudWatch Logs + X-Ray)**
-
-**You can now:**
-- Use this in production
-- Showcase it in interviews
-- Extend it with custom domains, rate limiting, analytics, etc.
-
-**Next Steps:**
-- Add custom domain with Route 53 + ACM
-- Implement TTL (Time-To-Live) for auto-expiring links
-- Add Redis caching for hot links
-- Build a frontend UI
-- Add authentication with API keys
-- Implement rate limiting with API Gateway usage plans
-
----
-
-**Questions?** Check the main README.md or AWS documentation.
+A common cause is a custom domain that already exists in another stack; a domain name can only be attached to one API Gateway custom domain per region.

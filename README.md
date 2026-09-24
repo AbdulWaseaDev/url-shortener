@@ -18,9 +18,11 @@ This application provides a REST API for:
 │   curl)     │      │  domain + keys)  │      └─────────────┘      └──────────────┘
 └─────────────┘      └──────────────────┘             │
                                                       ▼
-                                           CloudWatch logs, alarms
-                                               + X-Ray tracing
+                                   CloudWatch logs + X-Ray tracing
+                                   CloudWatch alarms ──▶ SNS ──▶ Email
 ```
+
+The same stack runs twice: **staging** (`url-shortener-staging.berlintechs.com`) and **production** (`url-shortener.berlintechs.com`), each with its own table, API key and alarms.
 
 **Flow:**
 
@@ -71,8 +73,9 @@ Redirects and stats are public, so anyone can open a short link.
 - Import the ready-to-use collection: `URL-Shortener.postman_collection.json`
 - See [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md) for detailed instructions
 
-**Deploying your own copy on a custom domain?**
-- See [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) for step-by-step instructions
+**Deploying your own copy?**
+- [DEPLOYMENT.md](DEPLOYMENT.md) covers the full setup: staging and prod stacks, alerts and CI
+- [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) covers certificates and DNS for the custom domains
 
 ## API Contract
 
@@ -455,8 +458,8 @@ url-shortener/
 │   └── deploy.yml                          # CI/CD: build, staging + tests, prod + smoke
 ├── URL-Shortener.postman_collection.json   # Postman collection (base_url, api_key vars)
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
-├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
-├── DEPLOYMENT.md                           # Deployment guide
+├── CUSTOM_DOMAIN_SETUP.md                  # Certificates, CAA and DNS for custom domains
+├── DEPLOYMENT.md                           # Full setup: stacks, alerts, CI role, cleanup
 ├── template.yaml                           # SAM infra: API, domain, API key, alarms, alerts
 ├── samconfig.toml                          # Staging and prod deploy configuration
 ├── pytest.ini                              # Pytest configuration

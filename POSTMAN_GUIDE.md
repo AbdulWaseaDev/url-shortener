@@ -177,8 +177,10 @@ pm.test("Response has short_code", function () {
 
 ## Architecture
 
-- **API Gateway:** REST API with Lambda proxy integration
-- **Lambda:** Python 3.13 runtime
-- **DynamoDB:** Serverless NoSQL database (on-demand billing)
-- **CloudWatch:** Automatic logging with 7-day retention
-- **X-Ray:** Distributed tracing enabled
+- **Domain:** `url-shortener.berlintechs.com` (API Gateway regional custom domain; staging runs on `url-shortener-staging.berlintechs.com`)
+- **API Gateway:** REST API with Lambda proxy integration, API key on `POST /links`, rate limiting
+- **Lambda:** Python 3.13 runtime, X-Ray tracing
+- **DynamoDB:** Serverless NoSQL database (on-demand billing, retained and deletion-protected)
+- **CloudWatch:** Logs with 7-day retention, alarms that email on errors, throttling and latency
+
+See the [README](README.md) for details.
