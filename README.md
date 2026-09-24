@@ -412,28 +412,33 @@ The ACM certificate and the Cloudflare DNS records live outside the stack; delet
 ```
 url-shortener/
 ├── url_shortener/                          # Lambda function code
-│   ├── app.py                              # Main handler (routes requests)
+│   ├── __init__.py
+│   ├── app.py                              # Handler: routing, redirects, stats, short URL building
 │   ├── shortener.py                        # Core logic (validation, code generation)
 │   └── requirements.txt                    # Python dependencies (boto3)
 ├── tests/
+│   ├── __init__.py
 │   ├── unit/                               # Unit tests (mocked, no AWS)
+│   │   ├── __init__.py
 │   │   ├── test_shortener.py               # Test validation & code gen
-│   │   └── test_handler.py                 # Test Lambda handler logic
-│   └── integration/                        # Integration tests (real API)
-│       └── test_api.py                     # End-to-end API tests
+│   │   └── test_handler.py                 # Test handler logic, 404s, short URLs
+│   └── integration/                        # Integration tests (real API, run in CI)
+│       ├── __init__.py
+│       └── test_api.py                     # End-to-end tests incl. API key checks
 ├── events/                                 # Sample API Gateway events for local testing
 │   ├── create_link.json
 │   ├── get_redirect.json
 │   └── get_stats.json
 ├── .github/workflows/
-│   └── deploy.yml                          # CI/CD pipeline
-├── URL-Shortener.postman_collection.json   # Postman collection
+│   └── deploy.yml                          # CI/CD: unit tests, deploy, integration tests
+├── URL-Shortener.postman_collection.json   # Postman collection (base_url, api_key vars)
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
 ├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
 ├── DEPLOYMENT.md                           # Deployment guide
-├── template.yaml                           # SAM/CloudFormation infrastructure
+├── template.yaml                           # SAM infra: API, domain, API key, alarms
 ├── samconfig.toml                          # SAM deployment configuration
 ├── pytest.ini                              # Pytest configuration
+├── .gitignore                              # Git ignore rules
 └── README.md                               # This file
 ```
 
