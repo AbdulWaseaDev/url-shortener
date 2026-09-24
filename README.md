@@ -52,7 +52,7 @@ The same stack runs twice: **staging** (`url-shortener-staging.berlintechs.com`)
 - **No accidental writes on lookups:** The redirect's `UpdateItem` uses `attribute_exists(short_code)`, so unknown codes return 404 instead of upserting an empty item
 - **Data protection:** The table has `DeletionPolicy: Retain`, `UpdateReplacePolicy: Retain`, deletion protection and point-in-time recovery, so links survive a deleted or replaced stack
 - **Staging before production:** Every change is deployed to a separate staging stack and must pass integration tests there before it reaches production
-- **Scalability:** Fully serverless, auto-scales from 0 to millions of requests
+- **Scalability:** Fully serverless and scales automatically. API Gateway throttling (50 req/s, 5 req/s for link creation) caps traffic and cost.
 - **Cost-efficiency:** On-demand billing for DynamoDB and Lambda (pay only for what you use)
 
 ## Quick Start
