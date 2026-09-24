@@ -77,6 +77,18 @@ Redirects and stats are public, so anyone can open a short link.
 - [DEPLOYMENT.md](DEPLOYMENT.md) covers the full setup: staging and prod stacks, alerts and CI
 - [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) covers certificates and DNS for the custom domains
 
+## Live Demo
+
+Tested against production from PowerShell. The API key is loaded into a variable and never printed.
+
+**Create a link, open it, and check its stats** (one visit, `click_count: 1`):
+
+![Creating a short link and checking its stats in PowerShell](docs/screenshots/create-and-stats.png)
+
+**Redirect and protections:** the redirect is a `302`, creating a link without a key returns `403`, an unknown code returns `404`, and an invalid URL returns `400`. The last command shows a link created before the move to the production stack, still resolving with its click history:
+
+![Redirect status and error responses in PowerShell](docs/screenshots/redirect-and-protections.png)
+
 ## API Contract
 
 **Base URL:** `https://url-shortener.berlintechs.com`
@@ -450,6 +462,7 @@ url-shortener/
 │   └── smoke/                              # Read-only production checks (run in CI)
 │       ├── __init__.py
 │       └── test_smoke.py                   # 404s and API key enforcement
+├── docs/screenshots/                       # Live demo screenshots used in this README
 ├── events/                                 # Sample API Gateway events for local testing
 │   ├── create_link.json
 │   ├── get_redirect.json
