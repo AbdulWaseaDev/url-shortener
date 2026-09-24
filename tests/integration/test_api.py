@@ -6,6 +6,7 @@ environment variable to avoid running accidentally.
 
 Usage:
     export API_ENDPOINT=https://xyz.execute-api.us-east-1.amazonaws.com/Prod
+    export API_KEY=<value of the stack's API key>
     export RUN_INTEGRATION_TESTS=true
     pytest tests/integration/
 """
@@ -22,6 +23,9 @@ pytestmark = pytest.mark.skipif(
     not os.getenv('RUN_INTEGRATION_TESTS'),
     reason="Integration tests disabled. Set RUN_INTEGRATION_TESTS=true to run"
 )
+
+# POST /links requires an API key; redirects and stats are public
+HEADERS = {'x-api-key': os.getenv('API_KEY', '')}
 
 
 @pytest.fixture(scope='module')
@@ -42,6 +46,7 @@ class TestCreateLinkIntegration:
         test_url = f'https://example.com/test/{int(time.time())}'
         response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={'url': test_url},
             timeout=10
         )
@@ -71,6 +76,7 @@ class TestCreateLinkIntegration:
         """Test that invalid URLs are rejected."""
         response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={'url': 'not-a-valid-url'},
             timeout=10
         )
@@ -84,6 +90,7 @@ class TestCreateLinkIntegration:
         """Test that missing URL field is rejected."""
         response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={},
             timeout=10
         )
@@ -91,6 +98,16 @@ class TestCreateLinkIntegration:
         assert response.status_code == 400
         data = response.json()
         assert 'error' in data
+
+    def test_create_link_requires_api_key(self, api_endpoint):
+        """Test creating a link without an API key is rejected."""
+        response = requests.post(
+            f'{api_endpoint}/links',
+            json={'url': 'https://example.com'},
+            timeout=10
+        )
+
+        assert response.status_code == 403
 
 
 class TestRedirectIntegration:
@@ -102,6 +119,7 @@ class TestRedirectIntegration:
         test_url = f'https://example.com/redirect-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={'url': test_url},
             timeout=10
         )
@@ -157,6 +175,7 @@ class TestStatsIntegration:
         test_url = f'https://example.com/stats-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={'url': test_url},
             timeout=10
         )
@@ -196,6 +215,7 @@ class TestEndToEndFlow:
         test_url = f'https://example.com/e2e-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
+            headers=HEADERS,
             json={'url': test_url},
             timeout=10
         )

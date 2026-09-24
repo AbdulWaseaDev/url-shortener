@@ -59,6 +59,22 @@ def lambda_handler(event: dict, context: Any) -> dict:
         return error_response(500, 'Internal server error')
 
 
+def build_short_url(event: dict, short_code: str) -> str:
+    """
+    Build the public short URL from the request's domain.
+
+    The default execute-api domain needs the stage in the path
+    (https://abc.execute-api.../Prod/code). A custom domain maps the
+    stage at its root, so the stage is left out (https://go.example.com/code).
+    """
+    request_context = event.get('requestContext', {})
+    domain = request_context.get('domainName', '')
+    if domain.endswith('.amazonaws.com'):
+        stage = request_context.get('stage', 'Prod')
+        return f"https://{domain}/{stage}/{short_code}"
+    return f"https://{domain}/{short_code}"
+
+
 def create_link(event: dict) -> dict:
     """
     Create a new short link.
@@ -99,12 +115,7 @@ def create_link(event: dict) -> dict:
                     ConditionExpression='attribute_not_exists(short_code)'
                 )
 
-                # Success - construct short URL from event context
-                # Extract API Gateway domain and stage from event
-                request_context = event.get('requestContext', {})
-                domain = request_context.get('domainName', '')
-                stage = request_context.get('stage', 'Prod')
-                short_url = f"https://{domain}/{stage}/{short_code}"
+                short_url = build_short_url(event, short_code)
                 return {
                     'statusCode': 201,
                     'headers': {
@@ -154,11 +165,13 @@ def get_redirect(short_code: str) -> dict:
         return error_response(400, 'Short code is required')
 
     try:
-        # Atomic increment of click count
+        # Atomic increment of click count. The condition stops UpdateItem
+        # from upserting an empty item when the code doesn't exist.
         response = dynamodb.update_item(
             TableName=TABLE_NAME,
             Key={'short_code': {'S': short_code}},
             UpdateExpression='ADD click_count :inc',
+            ConditionExpression='attribute_exists(short_code)',
             ExpressionAttributeValues={':inc': {'N': '1'}},
             ReturnValues='ALL_NEW'
         )
@@ -184,6 +197,8 @@ def get_redirect(short_code: str) -> dict:
         }
 
     except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            return error_response(404, 'Short link not found')
         print(f"DynamoDB error: {e}")
         return error_response(500, 'Failed to retrieve link')
     except Exception as e:

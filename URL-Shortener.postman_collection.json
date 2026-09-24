@@ -13,6 +13,10 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "x-api-key",
+            "value": "{{api_key}}"
           }
         ],
         "body": {
@@ -20,17 +24,11 @@
           "raw": "{\n  \"url\": \"https://github.com/AbdulWaseaDev/url-shortener\"\n}"
         },
         "url": {
-          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links",
-          "protocol": "https",
+          "raw": "{{base_url}}/links",
           "host": [
-            "pktmrol6o8",
-            "execute-api",
-            "us-east-1",
-            "amazonaws",
-            "com"
+            "{{base_url}}"
           ],
           "path": [
-            "Prod",
             "links"
           ]
         },
@@ -44,17 +42,11 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/abc123",
-          "protocol": "https",
+          "raw": "{{base_url}}/abc123",
           "host": [
-            "pktmrol6o8",
-            "execute-api",
-            "us-east-1",
-            "amazonaws",
-            "com"
+            "{{base_url}}"
           ],
           "path": [
-            "Prod",
             "abc123"
           ]
         },
@@ -68,17 +60,11 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links/abc123/stats",
-          "protocol": "https",
+          "raw": "{{base_url}}/links/abc123/stats",
           "host": [
-            "pktmrol6o8",
-            "execute-api",
-            "us-east-1",
-            "amazonaws",
-            "com"
+            "{{base_url}}"
           ],
           "path": [
-            "Prod",
             "links",
             "abc123",
             "stats"
@@ -87,6 +73,16 @@
         "description": "Get statistics for a short link (clicks, creation time, original URL). Replace 'abc123' with an actual short code."
       },
       "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://url-shortener.berlintechs.com"
+    },
+    {
+      "key": "api_key",
+      "value": "YOUR_API_KEY"
     }
   ]
 }

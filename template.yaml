@@ -12,8 +12,41 @@ Parameters:
       - staging
       - prod
     Description: Deployment environment
+  DomainName:
+    Type: String
+    Default: url-shortener.berlintechs.com
+    Description: Custom domain for short links (DNS is managed in Cloudflare)
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:633605692642:certificate/44fddf0a-dc3c-441f-a109-19002961ff39
+    Description: ACM certificate for DomainName (must be in the stack's region)
 
 Globals:
+  Api:
+    # Custom domain mapped at the root, so short links are https://<domain>/<code>
+    Domain:
+      DomainName: !Ref DomainName
+      CertificateArn: !Ref CertificateArn
+      EndpointConfiguration: REGIONAL
+      BasePath:
+        - /
+    # Stage-wide throttle for every route, including the public redirect and stats routes
+    MethodSettings:
+      - ResourcePath: '/*'
+        HttpMethod: '*'
+        ThrottlingRateLimit: 50
+        ThrottlingBurstLimit: 100
+    # API key usage plan; only routes with ApiKeyRequired (POST /links) enforce it
+    Auth:
+      UsagePlan:
+        CreateUsagePlan: PER_API
+        Description: Limits link creation per API key
+        Throttle:
+          RateLimit: 5
+          BurstLimit: 10
+        Quota:
+          Limit: 1000
+          Period: DAY
   Function:
     Runtime: python3.13
     Timeout: 10
@@ -70,6 +103,8 @@ Resources:
           Properties:
             Path: /links
             Method: POST
+            Auth:
+              ApiKeyRequired: true
         GetRedirect:
           Type: Api
           Properties:
@@ -95,12 +130,91 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/url-shortener-api-${Environment}'
       RetentionInDays: 7
 
+  # CloudWatch alarms - visible in the CloudWatch console (no notification targets)
+  ApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'url-shortener-${Environment}-api-5xx'
+      AlarmDescription: API returned 5 or more 5xx responses in 5 minutes
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref AWS::StackName
+        - Name: Stage
+          Value: Prod
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  FunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'url-shortener-${Environment}-lambda-errors'
+      AlarmDescription: Lambda function invocation errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref UrlShortenerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  FunctionThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'url-shortener-${Environment}-lambda-throttles'
+      AlarmDescription: Lambda invocations are being throttled
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref UrlShortenerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  FunctionLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'url-shortener-${Environment}-lambda-latency'
+      AlarmDescription: Lambda p99 duration above 3 seconds for 15 minutes
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref UrlShortenerFunction
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   ApiEndpoint:
     Description: 'API Gateway endpoint URL for URL shortener'
     Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
     Export:
       Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  CustomDomainUrl:
+    Description: 'Public base URL for short links'
+    Value: !Sub 'https://${DomainName}'
+
+  ApiKeyId:
+    Description: 'ID of the API key required by POST /links (get the value with aws apigateway get-api-key --include-value)'
+    Value: !Ref ServerlessRestApiApiKey
 
   TableName:
     Description: 'DynamoDB table storing link mappings'

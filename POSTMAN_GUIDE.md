@@ -2,7 +2,7 @@
 
 ## API Endpoint
 ```
-https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod
+https://url-shortener.berlintechs.com
 ```
 
 ## Quick Start - Import Collection
@@ -14,6 +14,8 @@ https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod
 5. Click **Import**
 
 The collection includes all three endpoints pre-configured and ready to use!
+
+**Set your API key:** creating links requires an API key. After importing, open the collection, go to the **Variables** tab and replace `YOUR_API_KEY` in `api_key` with your key. The collection sends it as the `x-api-key` header on "Create Short Link". Redirects and stats don't need a key.
 
 ---
 
@@ -34,15 +36,15 @@ The collection includes all three endpoints pre-configured and ready to use!
 ```json
 {
   "short_code": "abc123",
-  "short_url": "https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/abc123",
+  "short_url": "https://url-shortener.berlintechs.com/abc123",
   "original_url": "https://example.com"
 }
 ```
 
 **Postman Setup:**
 - Method: `POST`
-- URL: `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links`
-- Headers: `Content-Type: application/json`
+- URL: `https://url-shortener.berlintechs.com/links`
+- Headers: `Content-Type: application/json`, `x-api-key: YOUR_API_KEY`
 - Body (raw JSON):
   ```json
   {
@@ -62,7 +64,7 @@ The collection includes all three endpoints pre-configured and ready to use!
 
 **Postman Setup:**
 - Method: `GET`
-- URL: `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/abc123`
+- URL: `https://url-shortener.berlintechs.com/abc123`
 - Replace `abc123` with your actual short code
 
 **Note:** Postman will show the redirect response. To see the final URL, check the response headers or disable "Automatically follow redirects" in Postman settings.
@@ -85,7 +87,7 @@ The collection includes all three endpoints pre-configured and ready to use!
 
 **Postman Setup:**
 - Method: `GET`
-- URL: `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links/abc123/stats`
+- URL: `https://url-shortener.berlintechs.com/links/abc123/stats`
 - Replace `abc123` with your actual short code
 
 ---
@@ -117,10 +119,26 @@ The collection includes all three endpoints pre-configured and ready to use!
 }
 ```
 
+### 403 Forbidden
+Missing or invalid `x-api-key` on "Create Short Link":
+```json
+{
+  "message": "Forbidden"
+}
+```
+
 ### 404 Not Found
 ```json
 {
-  "error": "Short code not found"
+  "error": "Short link not found"
+}
+```
+
+### 429 Too Many Requests
+Rate limit or daily quota exceeded:
+```json
+{
+  "message": "Too Many Requests"
 }
 ```
 
@@ -137,14 +155,15 @@ The collection includes all three endpoints pre-configured and ready to use!
 
 - **Save responses:** In Postman, save example responses for each endpoint
 - **Environment variables:** Create a Postman environment with:
-  - `base_url`: `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod`
+  - `base_url`: `https://url-shortener.berlintechs.com`
+  - `api_key`: Your API key for creating links
   - `short_code`: Save this after creating a link
 - **Tests:** Add Postman tests to validate responses automatically
 
 Example Postman test for "Create Short Link":
 ```javascript
-pm.test("Status code is 200", function () {
-    pm.response.to.have.status(200);
+pm.test("Status code is 201", function () {
+    pm.response.to.have.status(201);
 });
 
 pm.test("Response has short_code", function () {

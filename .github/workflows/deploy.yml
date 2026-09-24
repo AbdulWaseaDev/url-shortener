@@ -76,22 +76,26 @@ jobs:
       - name: Get API Endpoint
         id: get-endpoint
         run: |
-          API_ENDPOINT=$(aws cloudformation describe-stacks \
-            --stack-name url-shortener-dev \
-            --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
-            --output text \
-            --region ${{ env.AWS_REGION }})
+          API_ENDPOINT=$(aws cloudformation describe-stacks             --stack-name url-shortener-dev             --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue'             --output text             --region ${{ env.AWS_REGION }})
           echo "API_ENDPOINT=${API_ENDPOINT}" >> $GITHUB_OUTPUT
           echo "Deployed API endpoint: ${API_ENDPOINT}"
 
-      - name: Run integration tests (optional)
-        if: false  # Disabled by default - enable manually if needed
+      - name: Get API key for integration tests
+        id: get-api-key
         run: |
-          echo "Running integration tests..."
+          API_KEY_ID=$(aws cloudformation describe-stacks             --stack-name url-shortener-dev             --query 'Stacks[0].Outputs[?OutputKey==`ApiKeyId`].OutputValue'             --output text             --region ${{ env.AWS_REGION }})
+          API_KEY=$(aws apigateway get-api-key             --api-key "${API_KEY_ID}"             --include-value             --query value             --output text             --region ${{ env.AWS_REGION }})
+          echo "::add-mask::${API_KEY}"
+          echo "API_KEY=${API_KEY}" >> $GITHUB_OUTPUT
+
+      - name: Run integration tests
+        run: |
+          echo "Running integration tests against the deployed API..."
           pytest tests/integration/ -v --tb=short
         env:
           RUN_INTEGRATION_TESTS: true
           API_ENDPOINT: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}
+          API_KEY: ${{ steps.get-api-key.outputs.API_KEY }}
 
       - name: Deployment Summary
         run: |
@@ -99,4 +103,4 @@ jobs:
           echo "API Endpoint: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}"
           echo ""
           echo "Test the API:"
-          echo "  Create link: curl -X POST ${{ steps.get-endpoint.outputs.API_ENDPOINT }}/links -H 'Content-Type: application/json' -d '{\"url\":\"https://example.com\"}'"
+          echo "  Create link: curl -X POST ${{ steps.get-endpoint.outputs.API_ENDPOINT }}/links -H 'Content-Type: application/json' -H 'x-api-key: <your key>' -d '{\"url\":\"https://example.com\"}'"

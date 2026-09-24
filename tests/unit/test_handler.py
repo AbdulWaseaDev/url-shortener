@@ -5,6 +5,7 @@ import os
 from unittest.mock import patch, MagicMock
 
 import pytest
+from botocore.exceptions import ClientError
 
 # Set environment variables before importing app
 os.environ['TABLE_NAME'] = 'test-table'
@@ -12,6 +13,7 @@ os.environ['BASE_URL'] = 'https://api.example.com'
 
 from url_shortener.app import (
     lambda_handler,
+    build_short_url,
     create_link,
     get_redirect,
     get_stats,
@@ -33,6 +35,26 @@ class TestErrorResponse:
         """Should include CORS header."""
         response = error_response(404, 'Not found')
         assert response['headers']['Access-Control-Allow-Origin'] == '*'
+
+
+class TestBuildShortUrl:
+    """Test short URL construction for default and custom domains."""
+
+    def test_includes_stage_on_execute_api_domain(self):
+        """Default API Gateway domain needs the stage in the path."""
+        event = {'requestContext': {
+            'domainName': 'abc123.execute-api.us-east-1.amazonaws.com',
+            'stage': 'Prod'
+        }}
+        assert build_short_url(event, 'Xy12Ab') ==             'https://abc123.execute-api.us-east-1.amazonaws.com/Prod/Xy12Ab'
+
+    def test_omits_stage_on_custom_domain(self):
+        """Custom domain maps the stage at its root."""
+        event = {'requestContext': {
+            'domainName': 'go.example.com',
+            'stage': 'Prod'
+        }}
+        assert build_short_url(event, 'Xy12Ab') == 'https://go.example.com/Xy12Ab'
 
 
 class TestLambdaHandler:
@@ -209,13 +231,18 @@ class TestGetRedirect:
 
     @patch('url_shortener.app.dynamodb')
     def test_returns_404_for_nonexistent_code(self, mock_dynamodb):
-        """Should return 404 if code doesn't exist."""
-        mock_dynamodb.update_item.return_value = {}  # No Attributes
+        """Should return 404 if code doesn't exist, without creating an item."""
+        mock_dynamodb.update_item.side_effect = ClientError(
+            {'Error': {'Code': 'ConditionalCheckFailedException', 'Message': ''}},
+            'UpdateItem'
+        )
 
         response = get_redirect('nonexistent')
 
         assert response['statusCode'] == 404
         assert 'not found' in json.loads(response['body'])['error'].lower()
+        call_args = mock_dynamodb.update_item.call_args[1]
+        assert call_args['ConditionExpression'] == 'attribute_exists(short_code)'
 
     def test_rejects_empty_code(self):
         """Should return 400 for empty code."""
