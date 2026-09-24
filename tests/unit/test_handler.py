@@ -69,7 +69,7 @@ class TestLambdaHandler:
         }
 
         response = lambda_handler(event, None)
-        assert response['statusCode'] == 301
+        assert response['statusCode'] == 302
 
     @patch('url_shortener.app.dynamodb')
     def test_routes_get_stats(self, mock_dynamodb):
@@ -190,7 +190,7 @@ class TestGetRedirect:
 
     @patch('url_shortener.app.dynamodb')
     def test_redirects_successfully(self, mock_dynamodb):
-        """Should return 301 redirect with original URL."""
+        """Should return 302 redirect with original URL."""
         mock_dynamodb.update_item.return_value = {
             'Attributes': {
                 'original_url': {'S': 'https://example.com/original'},
@@ -200,7 +200,7 @@ class TestGetRedirect:
 
         response = get_redirect('abc123')
 
-        assert response['statusCode'] == 301
+        assert response['statusCode'] == 302
         assert response['headers']['Location'] == 'https://example.com/original'
 
         # Verify atomic increment was called

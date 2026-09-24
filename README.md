@@ -1,14 +1,52 @@
 # URL Shortener - Serverless REST API
 
-[![GitHub Stars](https://img.shields.io/github/stars/AbdulWaseaDev/url-shortener?style=social)](https://github.com/AbdulWaseaDev/url-shortener/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/AbdulWaseaDev/url-shortener?style=social)](https://github.com/AbdulWaseaDev/url-shortener/network/members)
-[![Follow @AbdulWaseaDev](https://img.shields.io/github/followers/AbdulWaseaDev?label=Follow&style=social)](https://github.com/AbdulWaseaDev)
-
 A production-ready, serverless URL shortener built with AWS Lambda, API Gateway, and DynamoDB. Create short links, track click statistics, and redirect users—all with zero server management.
 
-**⭐ Star this repo** | **🔗 Share with friends** | **👤 [Follow @AbdulWaseaDev](https://github.com/AbdulWaseaDev)**
+## What It Does
 
-## 🚀 Quick Start
+This application provides a REST API for:
+- **Creating short links** from long URLs
+- **Redirecting** users from short codes to original URLs
+- **Tracking statistics** including click counts and creation timestamps
+
+## Architecture
+
+```
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐      ┌──────────────┐
+│   Client    │─────▶│ API Gateway  │─────▶│   Lambda    │─────▶│  DynamoDB    │
+│ (Browser/   │◀─────│   (REST)     │◀─────│  (Python)   │◀─────│  (NoSQL)     │
+│   curl)     │      └──────────────┘      └─────────────┘      └──────────────┘
+└─────────────┘
+```
+
+**Flow:**
+
+1. **Client** sends HTTP request to API Gateway
+2. **API Gateway** validates request structure and routes to Lambda
+3. **Lambda** (Python 3.13) executes business logic:
+   - POST /links: Validates URL, generates 6-char short code, stores in DynamoDB
+   - GET /{code}: Looks up code, atomically increments counter, returns 302 redirect
+   - GET /links/{code}/stats: Retrieves and returns link metadata
+4. **DynamoDB** stores link mappings with structure:
+   ```
+   {
+     "short_code": "a3X9mK",           // Partition key
+     "original_url": "https://...",
+     "click_count": 42,
+     "created_at": "2024-01-15T10:30:00"
+   }
+   ```
+
+**Key Design Choices:**
+
+- **Short code generation:** Random 6-character alphanumeric codes (62^6 = ~56B combinations)
+- **Collision handling:** Atomic `PutItem` with `ConditionExpression` ensures uniqueness; retries up to 5 times on collision
+- **Click tracking:** Uses DynamoDB `UpdateExpression` with `ADD` for atomic counter increments (no race conditions)
+- **Temporary redirects:** Returns `302 Found` rather than `301`, because browsers cache 301s permanently and would skip the Lambda (and the click counter) on repeat visits
+- **Scalability:** Fully serverless, auto-scales from 0 to millions of requests
+- **Cost-efficiency:** On-demand billing for DynamoDB and Lambda (pay only for what you use)
+
+## Quick Start
 
 **Live API Endpoint:** `https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod`
 
@@ -27,13 +65,6 @@ curl -X POST https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links \
 - The current API Gateway domain is 56 characters long
 - Set up a custom domain (e.g., `go.yourdomain.com`) to get truly short URLs
 - See [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md) for step-by-step instructions
-
-## What It Does
-
-This application provides a REST API for:
-- **Creating short links** from long URLs
-- **Redirecting** users from short codes to original URLs
-- **Tracking statistics** including click counts and creation timestamps
 
 ## API Contract
 
@@ -79,12 +110,12 @@ curl -X POST https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links \
 curl -L https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/a3X9mK
 ```
 
-**Response:** `301 Moved Permanently`
+**Response:** `302 Found`
 ```
 Location: https://example.com/very/long/url
 ```
 
-The redirect is permanent (301), and each access atomically increments the click counter.
+The redirect is temporary (302) so browsers don't cache it, which means every visit reaches the API and atomically increments the click counter.
 
 **Error Responses:**
 - `404 Not Found` - Short code does not exist
@@ -112,44 +143,6 @@ curl https://pktmrol6o8.execute-api.us-east-1.amazonaws.com/Prod/links/a3X9mK/st
 
 **Error Responses:**
 - `404 Not Found` - Short code does not exist
-
----
-
-## Architecture
-
-```
-┌─────────────┐      ┌──────────────┐      ┌─────────────┐      ┌──────────────┐
-│   Client    │─────▶│ API Gateway  │─────▶│   Lambda    │─────▶│  DynamoDB    │
-│ (Browser/   │◀─────│   (REST)     │◀─────│  (Python)   │◀─────│  (NoSQL)     │
-│   curl)     │      └──────────────┘      └─────────────┘      └──────────────┘
-└─────────────┘
-```
-
-**Flow:**
-
-1. **Client** sends HTTP request to API Gateway
-2. **API Gateway** validates request structure and routes to Lambda
-3. **Lambda** (Python 3.13) executes business logic:
-   - POST /links: Validates URL, generates 6-char short code, stores in DynamoDB
-   - GET /{code}: Looks up code, atomically increments counter, returns 301 redirect
-   - GET /links/{code}/stats: Retrieves and returns link metadata
-4. **DynamoDB** stores link mappings with structure:
-   ```
-   {
-     "short_code": "a3X9mK",           // Partition key
-     "original_url": "https://...",
-     "click_count": 42,
-     "created_at": "2024-01-15T10:30:00"
-   }
-   ```
-
-**Key Design Choices:**
-
-- **Short code generation:** Random 6-character alphanumeric codes (62^6 = ~56B combinations)
-- **Collision handling:** Atomic `PutItem` with `ConditionExpression` ensures uniqueness; retries up to 5 times on collision
-- **Click tracking:** Uses DynamoDB `UpdateExpression` with `ADD` for atomic counter increments (no race conditions)
-- **Scalability:** Fully serverless, auto-scales from 0 to millions of requests
-- **Cost-efficiency:** On-demand billing for DynamoDB and Lambda (pay only for what you use)
 
 ---
 
@@ -379,7 +372,6 @@ url-shortener/
 ├── URL-Shortener.postman_collection.json   # Postman collection
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
 ├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
-├── INTERVIEW_GUIDE.md                      # Technical interview preparation
 ├── template.yaml                           # SAM/CloudFormation infrastructure
 ├── samconfig.toml                          # SAM deployment configuration
 ├── pytest.ini                              # Pytest configuration
@@ -429,40 +421,15 @@ pytest tests/integration/
 
 ---
 
-## 💼 Technical Interview Preparation
+## Author
 
-Preparing to discuss this project in interviews? See the comprehensive [**INTERVIEW_GUIDE.md**](INTERVIEW_GUIDE.md) for:
-
-- **Architecture deep dives** - Serverless design patterns and trade-offs
-- **DynamoDB design decisions** - Why NoSQL over RDS, partition key strategy
-- **Concurrency handling** - Atomic counters, collision resolution
-- **Security best practices** - IAM least privilege, OIDC authentication
-- **Testing strategies** - Unit vs integration testing approaches
-- **Observability** - CloudWatch, X-Ray, and monitoring best practices
-- **Common follow-up questions** - Scaling, abuse prevention, custom codes, cost analysis
-
-**Quick talking points:** Serverless 3-tier architecture • DynamoDB atomic operations • 62^6 collision-resistant codes • OIDC-based CI/CD • X-Ray distributed tracing • Production-ready with comprehensive testing
-
----
-
-## 👨‍💻 Author
-
-**Abdul Wasea**
-
-[![GitHub](https://img.shields.io/badge/GitHub-AbdulWaseaDev-181717?style=for-the-badge&logo=github)](https://github.com/AbdulWaseaDev)
-[![Follow](https://img.shields.io/github/followers/AbdulWaseaDev?label=Follow%20%40AbdulWaseaDev&style=for-the-badge&logo=github)](https://github.com/AbdulWaseaDev)
-
-If you find this project helpful, please consider:
-- ⭐ **Starring** this repository
-- 🍴 **Forking** it for your own projects
-- 👤 **Following** me for more serverless and AWS projects
-- 🔗 **Sharing** with your network
+**Abdul Wasea** · [GitHub @AbdulWaseaDev](https://github.com/AbdulWaseaDev)
 
 ---
 
 ## License
 
-MIT License - feel free to use this code for learning, interviews, or production projects.
+MIT License
 
 ---
 

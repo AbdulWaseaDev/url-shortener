@@ -57,7 +57,7 @@ The collection includes all three endpoints pre-configured and ready to use!
 **GET** `/{short_code}`
 
 **Response:**
-- HTTP 301 Redirect to the original URL
+- HTTP 302 Redirect to the original URL
 - Increments click counter
 
 **Postman Setup:**
@@ -99,7 +99,7 @@ The collection includes all three endpoints pre-configured and ready to use!
 2. **Test the redirect:**
    - Use the "Redirect to Original URL" request
    - Replace `abc123` in the URL with your short code
-   - You should see a 301 redirect
+   - You should see a 302 redirect
 
 3. **Check statistics:**
    - Use the "Get Link Statistics" request

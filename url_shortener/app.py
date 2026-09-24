@@ -145,7 +145,8 @@ def get_redirect(short_code: str) -> dict:
     Atomically increments click_count before returning redirect.
 
     Returns:
-        301 Moved Permanently with Location header
+        302 Found with Location header (temporary, so browsers don't cache it
+        and every visit is counted)
         404 Not Found if code doesn't exist
         500 Internal Server Error on DynamoDB errors
     """
@@ -172,9 +173,9 @@ def get_redirect(short_code: str) -> dict:
         if not original_url:
             return error_response(404, 'Short link not found')
 
-        # Return 301 redirect
+        # Return 302 redirect
         return {
-            'statusCode': 301,
+            'statusCode': 302,
             'headers': {
                 'Location': original_url,
                 'Access-Control-Allow-Origin': '*'

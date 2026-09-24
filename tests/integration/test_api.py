@@ -124,7 +124,7 @@ class TestRedirectIntegration:
             timeout=10
         )
 
-        assert redirect_response.status_code == 301
+        assert redirect_response.status_code == 302
         assert redirect_response.headers['Location'] == test_url
 
         # Check stats again (should be 1 click)
@@ -210,7 +210,7 @@ class TestEndToEndFlow:
                 allow_redirects=False,
                 timeout=10
             )
-            assert redirect_response.status_code == 301
+            assert redirect_response.status_code == 302
 
         # 3. Verify stats show 3 clicks
         stats_response = requests.get(

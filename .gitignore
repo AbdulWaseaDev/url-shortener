@@ -38,3 +38,6 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Private notes (not published)
+INTERVIEW_GUIDE.md
