@@ -88,8 +88,16 @@ def create_link(event: dict) -> dict:
         500 Internal Server Error on DynamoDB errors
     """
     try:
-        # Parse and validate request body
-        body = json.loads(event.get('body', '{}'))
+        # Parse and validate request body. API Gateway sends "body": null
+        # when the request has no body, so check before parsing.
+        raw_body = event.get('body')
+        if raw_body is None:
+            return error_response(400, 'Request body is required')
+
+        body = json.loads(raw_body)
+        if not isinstance(body, dict):
+            return error_response(400, 'Request body must be a JSON object')
+
         is_valid, error_msg = validate_create_link_request(body)
 
         if not is_valid:

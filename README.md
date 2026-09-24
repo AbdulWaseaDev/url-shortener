@@ -44,7 +44,7 @@ The same stack runs twice: **staging** (`url-shortener-staging.berlintechs.com`)
 
 **Key Design Choices:**
 
-- **Short code generation:** Random 6-character alphanumeric codes (62^6 = ~56B combinations)
+- **Short code generation:** Random 6-character alphanumeric codes from Python's `secrets` module, so codes can't be predicted (62^6 = ~56B combinations)
 - **Collision handling:** Atomic `PutItem` with `ConditionExpression` ensures uniqueness; retries up to 5 times on collision
 - **Click tracking:** Uses DynamoDB `UpdateExpression` with `ADD` for atomic counter increments (no race conditions)
 - **Custom domain:** Served from `url-shortener.berlintechs.com` (API Gateway regional custom domain with an ACM certificate, DNS in Cloudflare), mapped at the root so short links have no `/Prod` stage prefix
@@ -120,7 +120,7 @@ curl -X POST https://url-shortener.berlintechs.com/links \
 - URL max length: 2048 characters
 
 **Error Responses:**
-- `400 Bad Request` - Invalid URL format or missing required fields
+- `400 Bad Request` - Missing body, body that isn't a JSON object, invalid JSON, invalid URL format, or missing required fields
 - `403 Forbidden` - Missing or invalid API key
 - `429 Too Many Requests` - Rate limit or daily quota exceeded
 - `500 Internal Server Error` - Failed to create link (rare)
@@ -210,25 +210,29 @@ aws ssm put-parameter --name /url-shortener/alert-email --type String \
   --value you@example.com --overwrite
 ```
 
-Lambda also has X-Ray tracing enabled.
+X-Ray tracing is enabled on both the API Gateway stage and the Lambda function, so a trace covers the whole request.
 
 ---
 
 ## IAM Permissions
 
-The Lambda function has **least-privilege** access via the `DynamoDBCrudPolicy`:
+The Lambda function has **least-privilege** access through an inline policy that allows only the DynamoDB calls `app.py` makes:
 
 ```yaml
 Policies:
-  - DynamoDBCrudPolicy:
-      TableName: !Ref LinksTable
+  - Statement:
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource: !GetAtt LinksTable.Arn
 ```
 
 This grants only:
-- `dynamodb:GetItem` - Read link data for redirects and stats
+- `dynamodb:GetItem` - Read link data for stats
 - `dynamodb:PutItem` - Create new short links
-- `dynamodb:UpdateItem` - Atomically increment click counter
-- `dynamodb:DeleteItem` - (Not used, but included in policy)
+- `dynamodb:UpdateItem` - Atomically increment click counter on redirect
 
 The policy is scoped to **only** the specific DynamoDB table created by this stack—no other tables or AWS resources are accessible.
 
@@ -282,7 +286,7 @@ The deployment creates:
 - 1 API Gateway REST API (3 routes) with a regional custom domain
 - 1 API key and usage plan (for `POST /links`)
 - 4 CloudWatch alarms and an SNS alert topic with an email subscription
-- 1 CloudWatch Log Group (7-day retention)
+- 1 CloudWatch Log Group (30-day retention in prod, 7 days in staging)
 - 1 IAM role (Lambda execution role with DynamoDB permissions)
 
 This is per environment (staging and production).

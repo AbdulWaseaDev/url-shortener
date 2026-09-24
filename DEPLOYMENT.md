@@ -74,8 +74,8 @@ Each stack creates:
 | Resource | Notes |
 |---|---|
 | DynamoDB table `url-shortener-links-<env>` | On-demand, point-in-time recovery, **retained and deletion-protected** |
-| Lambda `url-shortener-api-<env>` | Python 3.13, X-Ray tracing |
-| API Gateway REST API | 3 routes, stage throttling, API key + usage plan on `POST /links` |
+| Lambda `url-shortener-api-<env>` | Python 3.13, X-Ray tracing, logs kept 30 days in prod and 7 in staging |
+| API Gateway REST API | 3 routes, stage throttling, X-Ray tracing, API key + usage plan on `POST /links` |
 | Custom domain + base path mapping | Only when `DomainName` is set |
 | 4 CloudWatch alarms | 5xx, errors, throttles, p99 latency |
 | SNS topic `url-shortener-<env>-alerts` | Emails the SSM alert address |

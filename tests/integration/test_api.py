@@ -127,6 +127,18 @@ class TestCreateLinkIntegration:
         data = response.json()
         assert 'error' in data
 
+    def test_create_link_no_body(self, api_endpoint):
+        """Test that a request with no body is rejected with 400, not 500."""
+        response = requests.post(
+            f'{api_endpoint}/links',
+            headers=HEADERS,
+            timeout=10
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert 'error' in data
+
     def test_create_link_requires_api_key(self, api_endpoint):
         """Test creating a link without an API key is rejected."""
         response = requests.post(

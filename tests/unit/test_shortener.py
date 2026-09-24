@@ -1,5 +1,7 @@
 """Unit tests for core shortener logic."""
 
+import string
+
 import pytest
 from url_shortener.shortener import (
     generate_short_code,
@@ -25,6 +27,14 @@ class TestGenerateShortCode:
         """Code should contain only alphanumeric characters."""
         code = generate_short_code()
         assert code.isalnum()
+
+    def test_default_code_is_six_ascii_alphanumerics(self):
+        """Default code is 6 characters, each from the a-z, A-Z, 0-9 alphabet."""
+        alphabet = set(string.ascii_letters + string.digits)
+        for _ in range(50):
+            code = generate_short_code()
+            assert len(code) == 6
+            assert set(code) <= alphabet
 
     def test_uniqueness(self):
         """Multiple calls should produce different codes (statistically)."""

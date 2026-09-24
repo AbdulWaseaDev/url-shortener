@@ -21,11 +21,23 @@ Parameters:
     Default: ''
     Description: ACM certificate for DomainName (must be in the stack's region)
 
+Mappings:
+  # Per-environment settings
+  EnvironmentConfig:
+    dev:
+      LogRetentionDays: 7
+    staging:
+      LogRetentionDays: 7
+    prod:
+      LogRetentionDays: 30
+
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, '']]
 
 Globals:
   Api:
+    # X-Ray tracing on the API stage, so traces cover API Gateway as well as Lambda
+    TracingEnabled: true
     # Stage-wide throttle for every route, including the public redirect and stats routes
     MethodSettings:
       - ResourcePath: '/*'
@@ -91,12 +103,17 @@ Resources:
         Variables:
           TABLE_NAME: !Ref LinksTable
       Policies:
-        # Least privilege IAM - only the specific DynamoDB actions needed
-        # GetItem: Read link data for redirects and stats
+        # Least privilege IAM - only the DynamoDB actions app.py calls, on this table only
+        # GetItem: Read link data for stats
         # PutItem: Create new short links
-        # UpdateItem: Atomically increment click counter
-        - DynamoDBCrudPolicy:
-            TableName: !Ref LinksTable
+        # UpdateItem: Atomically increment click counter on redirect
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt LinksTable.Arn
       Events:
         CreateLink:
           Type: Api
@@ -121,14 +138,14 @@ Resources:
         Application: url-shortener
         Environment: !Ref Environment
 
-  # CloudWatch Log Group with 7-day retention
+  # CloudWatch Log Group: 30-day retention in prod, 7 days in staging and dev
   # Automatically captures Lambda execution logs
   # Retention prevents indefinite log storage costs
   FunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/url-shortener-api-${Environment}'
-      RetentionInDays: 7
+      RetentionInDays: !FindInMap [EnvironmentConfig, !Ref Environment, LogRetentionDays]
 
   # Custom domain mapped at the root, so short links are https://<domain>/<code>.
   # Defined explicitly (not via SAM's Api Domain) so it can be switched off per stack.

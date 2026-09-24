@@ -163,6 +163,41 @@ class TestCreateLink:
         assert 'json' in json.loads(response['body'])['error'].lower()
 
     @patch('url_shortener.app.dynamodb')
+    def test_rejects_null_body(self, mock_dynamodb):
+        """Should return 400 when API Gateway sends "body": null (no body)."""
+        event = {'body': None}
+        response = create_link(event)
+        assert response['statusCode'] == 400
+        assert 'required' in json.loads(response['body'])['error'].lower()
+        mock_dynamodb.put_item.assert_not_called()
+
+    @patch('url_shortener.app.dynamodb')
+    def test_rejects_missing_body_key(self, mock_dynamodb):
+        """Should return 400 when the event has no body key at all."""
+        response = create_link({})
+        assert response['statusCode'] == 400
+        assert 'required' in json.loads(response['body'])['error'].lower()
+        mock_dynamodb.put_item.assert_not_called()
+
+    @patch('url_shortener.app.dynamodb')
+    def test_rejects_json_array_body(self, mock_dynamodb):
+        """Should return 400 for valid JSON that is an array, not an object."""
+        event = {'body': json.dumps(['https://example.com'])}
+        response = create_link(event)
+        assert response['statusCode'] == 400
+        assert 'object' in json.loads(response['body'])['error'].lower()
+        mock_dynamodb.put_item.assert_not_called()
+
+    @patch('url_shortener.app.dynamodb')
+    def test_rejects_json_string_body(self, mock_dynamodb):
+        """Should return 400 for valid JSON that is a string, not an object."""
+        event = {'body': json.dumps('https://example.com')}
+        response = create_link(event)
+        assert response['statusCode'] == 400
+        assert 'object' in json.loads(response['body'])['error'].lower()
+        mock_dynamodb.put_item.assert_not_called()
+
+    @patch('url_shortener.app.dynamodb')
     def test_rejects_missing_url(self, mock_dynamodb):
         """Should return 400 for missing URL."""
         event = {'body': json.dumps({})}

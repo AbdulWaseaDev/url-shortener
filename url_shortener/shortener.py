@@ -1,6 +1,6 @@
 """Core URL shortener logic - validation and code generation."""
 
-import random
+import secrets
 import string
 from urllib.parse import urlparse
 
@@ -9,6 +9,8 @@ def generate_short_code(length: int = 6) -> str:
     """
     Generate a random alphanumeric short code.
 
+    Uses the secrets module (cryptographically secure) so codes can't be
+    predicted from previously issued ones.
     Uses uppercase, lowercase letters and digits (62 possible characters).
     With 6 characters: 62^6 = ~56 billion possible combinations.
 
@@ -19,7 +21,7 @@ def generate_short_code(length: int = 6) -> str:
         Random alphanumeric string of specified length
     """
     characters = string.ascii_letters + string.digits  # a-z, A-Z, 0-9
-    return ''.join(random.choices(characters, k=length))
+    return ''.join(secrets.choice(characters) for _ in range(length))
 
 
 def is_valid_url(url: str) -> bool:
