@@ -14,22 +14,18 @@ Parameters:
     Description: Deployment environment
   DomainName:
     Type: String
-    Default: url-shortener.berlintechs.com
-    Description: Custom domain for short links (DNS is managed in Cloudflare)
+    Default: ''
+    Description: Custom domain for short links (DNS is managed in Cloudflare). Empty = no custom domain
   CertificateArn:
     Type: String
-    Default: arn:aws:acm:us-east-1:633605692642:certificate/44fddf0a-dc3c-441f-a109-19002961ff39
+    Default: ''
     Description: ACM certificate for DomainName (must be in the stack's region)
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, '']]
 
 Globals:
   Api:
-    # Custom domain mapped at the root, so short links are https://<domain>/<code>
-    Domain:
-      DomainName: !Ref DomainName
-      CertificateArn: !Ref CertificateArn
-      EndpointConfiguration: REGIONAL
-      BasePath:
-        - /
     # Stage-wide throttle for every route, including the public redirect and stats routes
     MethodSettings:
       - ResourcePath: '/*'
@@ -59,11 +55,15 @@ Globals:
 Resources:
   # DynamoDB Table - stores short code -> original URL mappings
   # Uses on-demand billing (pay per request) - ideal for variable traffic
+  # Retained on stack deletion or replacement, and deletion-protected, so links can't be lost with the stack
   LinksTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub 'url-shortener-links-${Environment}'
       BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
       AttributeDefinitions:
         - AttributeName: short_code
           AttributeType: S
@@ -130,7 +130,43 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/url-shortener-api-${Environment}'
       RetentionInDays: 7
 
-  # CloudWatch alarms - visible in the CloudWatch console (no notification targets)
+  # Custom domain mapped at the root, so short links are https://<domain>/<code>.
+  # Defined explicitly (not via SAM's Api Domain) so it can be switched off per stack.
+  CustomDomain:
+    Type: AWS::ApiGateway::DomainName
+    Condition: HasCustomDomain
+    Properties:
+      DomainName: !Ref DomainName
+      RegionalCertificateArn: !Ref CertificateArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2
+
+  CustomDomainMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: HasCustomDomain
+    DependsOn: ServerlessRestApiProdStage
+    Properties:
+      DomainName: !Ref CustomDomain
+      RestApiId: !Ref ServerlessRestApi
+      Stage: Prod
+
+  # Alarm notifications by email. The address is read from SSM (/url-shortener/alert-email)
+  # so it stays out of the repo; the subscription must be confirmed from the inbox once.
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'url-shortener-${Environment}-alerts'
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: '{{resolve:ssm:/url-shortener/alert-email}}'
+
+  # CloudWatch alarms - notify AlertsTopic when they fire and when they recover
   ApiServerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -149,6 +185,10 @@ Resources:
       Threshold: 5
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+      OKActions:
+        - !Ref AlertsTopic
 
   FunctionErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -166,6 +206,10 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+      OKActions:
+        - !Ref AlertsTopic
 
   FunctionThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -183,6 +227,10 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+      OKActions:
+        - !Ref AlertsTopic
 
   FunctionLatencyAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -200,6 +248,10 @@ Resources:
       Threshold: 3000
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+      OKActions:
+        - !Ref AlertsTopic
 
 Outputs:
   ApiEndpoint:
@@ -208,9 +260,17 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-ApiEndpoint'
 
-  CustomDomainUrl:
+  BaseUrl:
     Description: 'Public base URL for short links'
-    Value: !Sub 'https://${DomainName}'
+    Value: !If
+      - HasCustomDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+
+  CustomDomainTarget:
+    Condition: HasCustomDomain
+    Description: 'DNS target for the custom domain (CNAME, DNS only)'
+    Value: !GetAtt CustomDomain.RegionalDomainName
 
   ApiKeyId:
     Description: 'ID of the API key required by POST /links (get the value with aws apigateway get-api-key --include-value)'

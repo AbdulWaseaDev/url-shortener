@@ -73,7 +73,7 @@ Map your custom domain to the API Gateway stage.
 2. Click **Configure API mappings**
 3. Click **Add new mapping**
 4. Configure:
-   - **API:** Select `url-shortener-dev` (or your stack name)
+   - **API:** Select `url-shortener-prod` (or your stack name)
    - **Stage:** `Prod`
    - **Path:** Leave empty (so short codes work directly: `go.yourdomain.com/abc123`)
 5. Click **Save**
@@ -83,7 +83,7 @@ Map your custom domain to the API Gateway stage.
 ```bash
 # Get API ID
 API_ID=$(aws cloudformation describe-stacks \
-  --stack-name url-shortener-dev \
+  --stack-name url-shortener-prod \
   --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
   --output text | cut -d'/' -f3 | cut -d'.' -f1)
 

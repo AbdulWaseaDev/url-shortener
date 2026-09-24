@@ -8,14 +8,21 @@ Usage:
     export API_ENDPOINT=https://xyz.execute-api.us-east-1.amazonaws.com/Prod
     export API_KEY=<value of the stack's API key>
     export RUN_INTEGRATION_TESTS=true
+    export TABLE_NAME=url-shortener-links-staging  # optional: delete test links afterwards
     pytest tests/integration/
+
+Every link created here points under TEST_URL_PREFIX. When TABLE_NAME is set,
+those links are deleted from DynamoDB after the run so tests leave no data behind.
 """
 
 import os
 import time
+import uuid
 
+import boto3
 import pytest
 import requests
+from boto3.dynamodb.conditions import Attr
 
 
 # Skip all tests in this module if integration tests not enabled
@@ -26,6 +33,27 @@ pytestmark = pytest.mark.skipif(
 
 # POST /links requires an API key; redirects and stats are public
 HEADERS = {'x-api-key': os.getenv('API_KEY', '')}
+
+# Unique per run, so cleanup only removes links this run created
+TEST_URL_PREFIX = f'https://example.com/ci-test/{uuid.uuid4().hex[:12]}'
+
+
+@pytest.fixture(scope='module', autouse=True)
+def cleanup_test_links():
+    """Delete links created by this run once all tests in the module finish."""
+    yield
+    table_name = os.getenv('TABLE_NAME')
+    if not table_name:
+        return
+    table = boto3.resource('dynamodb').Table(table_name)
+    scan_kwargs = {'FilterExpression': Attr('original_url').begins_with(TEST_URL_PREFIX)}
+    while True:
+        page = table.scan(**scan_kwargs)
+        for item in page['Items']:
+            table.delete_item(Key={'short_code': item['short_code']})
+        if 'LastEvaluatedKey' not in page:
+            break
+        scan_kwargs['ExclusiveStartKey'] = page['LastEvaluatedKey']
 
 
 @pytest.fixture(scope='module')
@@ -43,7 +71,7 @@ class TestCreateLinkIntegration:
     def test_create_link_full_flow(self, api_endpoint):
         """Test creating a link and verifying it exists."""
         # Create a link
-        test_url = f'https://example.com/test/{int(time.time())}'
+        test_url = f'{TEST_URL_PREFIX}/test/{int(time.time())}'
         response = requests.post(
             f'{api_endpoint}/links',
             headers=HEADERS,
@@ -116,7 +144,7 @@ class TestRedirectIntegration:
     def test_redirect_increments_counter(self, api_endpoint):
         """Test that redirect increments click count."""
         # Create a link
-        test_url = f'https://example.com/redirect-test/{int(time.time())}'
+        test_url = f'{TEST_URL_PREFIX}/redirect-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
             headers=HEADERS,
@@ -172,7 +200,7 @@ class TestStatsIntegration:
     def test_stats_for_new_link(self, api_endpoint):
         """Test stats endpoint returns correct data."""
         # Create a link
-        test_url = f'https://example.com/stats-test/{int(time.time())}'
+        test_url = f'{TEST_URL_PREFIX}/stats-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
             headers=HEADERS,
@@ -212,7 +240,7 @@ class TestEndToEndFlow:
     def test_complete_workflow(self, api_endpoint):
         """Test complete workflow: create, redirect multiple times, check stats."""
         # 1. Create a link
-        test_url = f'https://example.com/e2e-test/{int(time.time())}'
+        test_url = f'{TEST_URL_PREFIX}/e2e-test/{int(time.time())}'
         create_response = requests.post(
             f'{api_endpoint}/links',
             headers=HEADERS,

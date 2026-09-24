@@ -48,6 +48,8 @@ This application provides a REST API for:
 - **Custom domain:** Served from `url-shortener.berlintechs.com` (API Gateway regional custom domain with an ACM certificate, DNS in Cloudflare), mapped at the root so short links have no `/Prod` stage prefix
 - **Temporary redirects:** Returns `302 Found` rather than `301`, because browsers cache 301s permanently and would skip the Lambda (and the click counter) on repeat visits
 - **No accidental writes on lookups:** The redirect's `UpdateItem` uses `attribute_exists(short_code)`, so unknown codes return 404 instead of upserting an empty item
+- **Data protection:** The table has `DeletionPolicy: Retain`, `UpdateReplacePolicy: Retain`, deletion protection and point-in-time recovery, so links survive a deleted or replaced stack
+- **Staging before production:** Every change is deployed to a separate staging stack and must pass integration tests there before it reaches production
 - **Scalability:** Fully serverless, auto-scales from 0 to millions of requests
 - **Cost-efficiency:** On-demand billing for DynamoDB and Lambda (pay only for what you use)
 
@@ -167,7 +169,7 @@ Link creation is keyed so strangers can't fill the table, run up the bill, or us
 
 **Get the API key** (after deploying):
 ```bash
-KEY_ID=$(aws cloudformation describe-stacks --stack-name url-shortener-dev \
+KEY_ID=$(aws cloudformation describe-stacks --stack-name url-shortener-prod \
   --query 'Stacks[0].Outputs[?OutputKey==`ApiKeyId`].OutputValue' --output text)
 aws apigateway get-api-key --api-key "$KEY_ID" --include-value --query value --output text
 ```
@@ -185,7 +187,15 @@ CloudWatch alarms are defined in the template:
 | `url-shortener-<env>-lambda-throttles` | Any Lambda throttling in 5 minutes |
 | `url-shortener-<env>-lambda-latency` | p99 duration above 3 seconds for 15 minutes |
 
-The alarms have no notification targets, so their state shows only in the CloudWatch console. To get emailed, add an SNS topic and set it as each alarm's `AlarmActions`. Lambda also has X-Ray tracing enabled.
+Each alarm notifies an SNS topic (`url-shortener-<env>-alerts`) when it fires and again when it recovers, and the topic emails the address stored in SSM Parameter Store at `/url-shortener/alert-email`. Keeping the address in SSM keeps it out of the repo. AWS sends a confirmation email the first time a stack is deployed; alerts only arrive after you click it.
+
+Set or change the address:
+```bash
+aws ssm put-parameter --name /url-shortener/alert-email --type String \
+  --value you@example.com --overwrite
+```
+
+Lambda also has X-Ray tracing enabled.
 
 ---
 
@@ -219,54 +229,48 @@ The policy is scoped to **only** the specific DynamoDB table created by this sta
 2. **SAM CLI** installed ([installation guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html))
 3. **Python 3.13+** installed
 4. **Docker** (for `sam build --use-container`)
-5. **An issued ACM certificate** for your custom domain, in the same region as the stack. The template's `DomainName` and `CertificateArn` parameters default to this project's domain; override them to deploy your own copy (see [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md)):
-   ```bash
-   sam deploy --parameter-overrides Environment=dev \
-     DomainName=go.yourdomain.com \
-     CertificateArn=arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID
-   ```
-   After deploying, point a DNS-only CNAME for the domain at the custom domain's target (`aws apigateway get-domain-name --domain-name go.yourdomain.com --query regionalDomainName`).
+5. **An alert email in SSM** at `/url-shortener/alert-email` (see [Monitoring](#monitoring)). The deploy fails if it's missing.
+6. **An issued ACM certificate** for each environment's domain, in the same region as the stack (see [CUSTOM_DOMAIN_SETUP.md](CUSTOM_DOMAIN_SETUP.md)). Domains and certificate ARNs are set per environment in `samconfig.toml`. Leave `DomainName` empty to deploy without a custom domain. After deploying, point a DNS-only CNAME at the stack's `CustomDomainTarget` output.
+
+### Environments
+
+| Environment | Stack | URL | Deployed by |
+|---|---|---|---|
+| Staging | `url-shortener-staging` | `https://url-shortener-staging.berlintechs.com` | CI on every push to `main`; integration tests run here |
+| Production | `url-shortener-prod` | `https://url-shortener.berlintechs.com` | CI, only after staging passes |
+
+Each environment has its own table, API key, alarms and alert topic.
 
 ### Deploy to AWS
+
+Normally CI deploys (see [CI/CD](#cicd-with-github-actions)). To deploy by hand:
 
 ```bash
 # 1. Build the application
 sam build
 
-# 2. Deploy (first time - guided)
-sam deploy --guided
-
-# Follow prompts:
-#   - Stack Name: url-shortener-dev
-#   - AWS Region: us-east-1 (or your preferred region)
-#   - Parameter Environment: dev
-#   - Confirm changes: Y
-#   - Allow SAM CLI IAM role creation: Y
-#   - Disable rollback: N
-#   - Save arguments to config: Y
-
-# 3. Subsequent deploys (uses saved config)
+# 2. Deploy to staging (the default config) and review the changeset
 sam deploy
 
-# 4. Get API endpoint
-sam list stack-outputs --stack-name url-shortener-dev
-```
-
-**Alternative: Deploy to production environment**
-```bash
+# 3. Deploy to production
 sam deploy --config-env prod
+
+# 4. Show stack outputs (BaseUrl, ApiKeyId, CustomDomainTarget, ...)
+sam list stack-outputs --stack-name url-shortener-prod
 ```
 
 ### What Gets Created
 
 The deployment creates:
-- 1 DynamoDB table (on-demand billing)
+- 1 DynamoDB table (on-demand billing, retained and deletion-protected)
 - 1 Lambda function (Python 3.13, 256MB memory)
 - 1 API Gateway REST API (3 routes) with a regional custom domain
 - 1 API key and usage plan (for `POST /links`)
-- 4 CloudWatch alarms
+- 4 CloudWatch alarms and an SNS alert topic with an email subscription
 - 1 CloudWatch Log Group (7-day retention)
 - 1 IAM role (Lambda execution role with DynamoDB permissions)
+
+This is per environment (staging and production).
 
 **Estimated monthly cost:** $0-5 for low traffic (first 1M Lambda requests free, first 25GB DynamoDB storage free)
 
@@ -314,16 +318,24 @@ pytest tests/unit/ --cov=url_shortener --cov-report=term-missing
 
 ### Run Integration Tests
 
-Integration tests hit the **real deployed API**:
+Integration tests create real links, so run them against **staging**. With `TABLE_NAME` set, they delete the links they created when they finish:
 
 ```bash
-# Set API endpoint and key (see Security & Rate Limiting for getting the key)
-export API_ENDPOINT=https://url-shortener.berlintechs.com
-export API_KEY=YOUR_API_KEY
+export API_ENDPOINT=https://url-shortener-staging.berlintechs.com
+export API_KEY=YOUR_STAGING_API_KEY   # from the url-shortener-staging stack
+export TABLE_NAME=url-shortener-links-staging
 export RUN_INTEGRATION_TESTS=true
 
-# Run integration tests
 pytest tests/integration/ -v
+```
+
+### Run Smoke Tests
+
+Read-only checks that are safe against production (no links are created):
+
+```bash
+export SMOKE_API_ENDPOINT=https://url-shortener.berlintechs.com
+pytest tests/smoke/ -v
 ```
 
 ### Local API Testing with SAM
@@ -359,21 +371,18 @@ sam local invoke UrlShortenerFunction -e events/get_stats.json
 
 ## CI/CD with GitHub Actions
 
-The project includes **automated deployment** on every push to `main` branch.
+Every push to `main` runs a three-stage pipeline:
 
-### Workflow Behavior
+```
+Unit tests + build ──▶ Deploy staging ──▶ Integration tests ──▶ Deploy production ──▶ Smoke tests
+                       (staging stack)    (staging, cleaned up)  (prod stack)          (read-only)
+```
 
-On every push to `main`:
-1. ✅ Checkout code
-2. ✅ Set up Python 3.13
-3. ✅ Install dependencies
-4. ✅ Run unit tests (must pass)
-5. ✅ Build with SAM
-6. ✅ Deploy to AWS (creates/updates CloudFormation stack)
-7. ✅ Read the stack's API key and run the integration tests against the deployed API
-8. ✅ Print deployed API endpoint
+1. **Build:** run unit tests, then `sam build`. The build artifact is reused by both deploys, so production gets exactly what staging tested.
+2. **Staging:** deploy `url-shortener-staging`, read its API key, and run the integration tests. Test links are deleted afterwards.
+3. **Production:** runs only if staging passed. Deploys `url-shortener-prod`, then runs read-only smoke tests against `url-shortener.berlintechs.com`.
 
-**Deployment stops if unit tests fail, and the run fails if the deployed API doesn't pass the integration tests.**
+A failure at any stage stops the pipeline, so a change that breaks staging never reaches production. CloudFormation rolls back a deploy that fails partway through. Deploys never run concurrently.
 
 ### OIDC Authentication
 
@@ -382,7 +391,11 @@ GitHub Actions uses **OIDC** (OpenID Connect) for secure authentication to AWS w
 **Required Secret:**
 - `AWS_ROLE_ARN`: ARN of the IAM role with deployment permissions
 
-The role also needs `apigateway:GET` on the API key (`arn:aws:apigateway:us-east-1::/apikeys/*`) so the workflow can read the key for the integration tests.
+Besides CloudFormation, Lambda, API Gateway, DynamoDB, IAM, S3 and CloudWatch Logs, the role needs:
+- `sns:*Topic*`, `sns:Subscribe`/`Unsubscribe` on `url-shortener-*` topics (alert topics)
+- `cloudwatch:PutMetricAlarm`/`DeleteAlarms`/`DescribeAlarms` on `url-shortener-*` alarms
+- `ssm:GetParameter(s)` on `/url-shortener/*` (alert email)
+- `apigateway:GET` on API keys (to read the staging key for integration tests)
 
 For detailed OIDC setup instructions, see the CI/CD section in the original documentation.
 
@@ -393,17 +406,23 @@ For detailed OIDC setup instructions, see the CI/CD section in the original docu
 Delete all AWS resources:
 
 ```bash
-sam delete --stack-name url-shortener-dev
+sam delete --stack-name url-shortener-staging
+sam delete --stack-name url-shortener-prod
 ```
 
 This removes:
 - Lambda function
-- API Gateway, including the custom domain mapping, API key and usage plan
-- DynamoDB table (⚠️ **deletes all data**)
-- CloudWatch logs and alarms
+- API Gateway, including the custom domain, API key and usage plan
+- CloudWatch logs, alarms and the SNS alert topic
 - IAM role
 
-The ACM certificate and the Cloudflare DNS records live outside the stack; delete them separately if you no longer need them.
+The **DynamoDB table is kept** (it's retained and deletion-protected). To delete it too, turn protection off first:
+```bash
+aws dynamodb update-table --table-name url-shortener-links-prod --no-deletion-protection-enabled
+aws dynamodb delete-table --table-name url-shortener-links-prod
+```
+
+The ACM certificates, the SSM alert-email parameter and the Cloudflare DNS records live outside the stacks; delete them separately if you no longer need them.
 
 ---
 
@@ -422,21 +441,24 @@ url-shortener/
 │   │   ├── __init__.py
 │   │   ├── test_shortener.py               # Test validation & code gen
 │   │   └── test_handler.py                 # Test handler logic, 404s, short URLs
-│   └── integration/                        # Integration tests (real API, run in CI)
+│   ├── integration/                        # Integration tests (staging, run in CI)
+│   │   ├── __init__.py
+│   │   └── test_api.py                     # End-to-end tests, cleans up test links
+│   └── smoke/                              # Read-only production checks (run in CI)
 │       ├── __init__.py
-│       └── test_api.py                     # End-to-end tests incl. API key checks
+│       └── test_smoke.py                   # 404s and API key enforcement
 ├── events/                                 # Sample API Gateway events for local testing
 │   ├── create_link.json
 │   ├── get_redirect.json
 │   └── get_stats.json
 ├── .github/workflows/
-│   └── deploy.yml                          # CI/CD: unit tests, deploy, integration tests
+│   └── deploy.yml                          # CI/CD: build, staging + tests, prod + smoke
 ├── URL-Shortener.postman_collection.json   # Postman collection (base_url, api_key vars)
 ├── POSTMAN_GUIDE.md                        # Postman usage guide
 ├── CUSTOM_DOMAIN_SETUP.md                  # Custom domain setup guide
 ├── DEPLOYMENT.md                           # Deployment guide
-├── template.yaml                           # SAM infra: API, domain, API key, alarms
-├── samconfig.toml                          # SAM deployment configuration
+├── template.yaml                           # SAM infra: API, domain, API key, alarms, alerts
+├── samconfig.toml                          # Staging and prod deploy configuration
 ├── pytest.ini                              # Pytest configuration
 ├── .gitignore                              # Git ignore rules
 └── README.md                               # This file
@@ -459,7 +481,7 @@ sam deploy --guided --resolve-s3
 
 **Check logs:**
 ```bash
-sam logs --stack-name url-shortener-dev --tail
+sam logs --stack-name url-shortener-prod --tail
 ```
 
 **Common issues:**
@@ -484,13 +506,15 @@ pip install -r url_shortener/requirements.txt
 
 ### Integration tests skip with "API_ENDPOINT not set"
 
-**Fix:** Export API endpoint before running tests:
-```bash
-export API_ENDPOINT=https://url-shortener.berlintechs.com
-export API_KEY=YOUR_API_KEY
-export RUN_INTEGRATION_TESTS=true
-pytest tests/integration/
-```
+**Fix:** Export the staging endpoint and key before running tests (see [Run Integration Tests](#run-integration-tests)).
+
+### Deploy fails with "Parameter /url-shortener/alert-email not found"
+
+**Fix:** Store the alert email in SSM (see [Monitoring](#monitoring)), then deploy again.
+
+### Not receiving alert emails
+
+Check your inbox (and spam) for "AWS Notification - Subscription Confirmation" and click the link. Each stack's topic needs its own confirmation.
 
 ---
 

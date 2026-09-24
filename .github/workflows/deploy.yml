@@ -1,5 +1,9 @@
 name: Deploy URL Shortener
 
+# Pipeline: unit tests + build -> deploy staging -> integration tests on staging
+#           -> deploy prod -> read-only smoke tests on prod.
+# Prod is only deployed if staging passed its integration tests.
+
 on:
   push:
     branches:
@@ -14,9 +18,14 @@ permissions:
   id-token: write  # Required for OIDC authentication
   contents: read
 
+# Never run two deployments at once
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
 jobs:
-  deploy:
-    name: Build, Test, and Deploy
+  build:
+    name: Unit Tests and Build
     runs-on: ubuntu-latest
 
     steps:
@@ -33,22 +42,58 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest boto3 requests
-          # Install Lambda dependencies for testing
           pip install -r url_shortener/requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+        env:
+          TABLE_NAME: test-table
+          AWS_DEFAULT_REGION: us-east-1
 
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
 
-      - name: Run unit tests
-        run: |
-          echo "Running unit tests..."
-          pytest tests/unit/ -v --tb=short
-        env:
-          TABLE_NAME: test-table
-          BASE_URL: https://test.example.com
-          AWS_DEFAULT_REGION: us-east-1
+      - name: SAM Build
+        run: sam build --use-container
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: sam-build
+          path: .aws-sam/build
+          include-hidden-files: true
+
+  staging:
+    name: Deploy Staging and Run Integration Tests
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install test dependencies
+        run: pip install pytest boto3 requests
+
+      - name: Download build
+        uses: actions/download-artifact@v4
+        with:
+          name: sam-build
+          path: .aws-sam/build
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -56,51 +101,89 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: SAM Build
+      - name: SAM Deploy (staging)
         run: |
-          echo "Building SAM application..."
-          sam build --use-container
-
-      - name: SAM Deploy
-        run: |
-          echo "Deploying to AWS..."
           sam deploy \
+            --config-env staging \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --stack-name url-shortener-dev \
-            --parameter-overrides Environment=dev \
-            --resolve-s3 \
-            --capabilities CAPABILITY_IAM \
-            --region ${{ env.AWS_REGION }}
+            --no-fail-on-empty-changeset
 
-      - name: Get API Endpoint
-        id: get-endpoint
+      - name: Read stack outputs
+        id: outputs
         run: |
-          API_ENDPOINT=$(aws cloudformation describe-stacks             --stack-name url-shortener-dev             --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue'             --output text             --region ${{ env.AWS_REGION }})
-          echo "API_ENDPOINT=${API_ENDPOINT}" >> $GITHUB_OUTPUT
-          echo "Deployed API endpoint: ${API_ENDPOINT}"
-
-      - name: Get API key for integration tests
-        id: get-api-key
-        run: |
-          API_KEY_ID=$(aws cloudformation describe-stacks             --stack-name url-shortener-dev             --query 'Stacks[0].Outputs[?OutputKey==`ApiKeyId`].OutputValue'             --output text             --region ${{ env.AWS_REGION }})
-          API_KEY=$(aws apigateway get-api-key             --api-key "${API_KEY_ID}"             --include-value             --query value             --output text             --region ${{ env.AWS_REGION }})
+          get_output() {
+            aws cloudformation describe-stacks \
+              --stack-name url-shortener-staging \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+              --output text
+          }
+          API_KEY=$(aws apigateway get-api-key \
+            --api-key "$(get_output ApiKeyId)" \
+            --include-value \
+            --query value \
+            --output text)
           echo "::add-mask::${API_KEY}"
           echo "API_KEY=${API_KEY}" >> $GITHUB_OUTPUT
+          echo "API_ENDPOINT=$(get_output BaseUrl)" >> $GITHUB_OUTPUT
+          echo "TABLE_NAME=$(get_output TableName)" >> $GITHUB_OUTPUT
 
-      - name: Run integration tests
-        run: |
-          echo "Running integration tests against the deployed API..."
-          pytest tests/integration/ -v --tb=short
+      - name: Run integration tests (staging)
+        run: pytest tests/integration/ -v --tb=short
         env:
           RUN_INTEGRATION_TESTS: true
-          API_ENDPOINT: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}
-          API_KEY: ${{ steps.get-api-key.outputs.API_KEY }}
+          API_ENDPOINT: ${{ steps.outputs.outputs.API_ENDPOINT }}
+          API_KEY: ${{ steps.outputs.outputs.API_KEY }}
+          TABLE_NAME: ${{ steps.outputs.outputs.TABLE_NAME }}
+
+  production:
+    name: Deploy Production and Run Smoke Tests
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install test dependencies
+        run: pip install pytest requests
+
+      - name: Download build
+        uses: actions/download-artifact@v4
+        with:
+          name: sam-build
+          path: .aws-sam/build
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SAM Deploy (production)
+        run: |
+          sam deploy \
+            --config-env prod \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Run smoke tests (production, read-only)
+        run: pytest tests/smoke/ -v --tb=short
+        env:
+          SMOKE_API_ENDPOINT: https://url-shortener.berlintechs.com
 
       - name: Deployment Summary
         run: |
-          echo "✅ Deployment successful!"
-          echo "API Endpoint: ${{ steps.get-endpoint.outputs.API_ENDPOINT }}"
-          echo ""
-          echo "Test the API:"
-          echo "  Create link: curl -X POST ${{ steps.get-endpoint.outputs.API_ENDPOINT }}/links -H 'Content-Type: application/json' -H 'x-api-key: <your key>' -d '{\"url\":\"https://example.com\"}'"
+          echo "✅ Staging passed integration tests; production deployed and smoke-tested"
+          echo "Production: https://url-shortener.berlintechs.com"

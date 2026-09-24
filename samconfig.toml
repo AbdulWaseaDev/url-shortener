@@ -1,11 +1,17 @@
 # SAM deployment configuration
 # https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+#
+# Environments:
+#   sam deploy                       -> staging (default)
+#   sam deploy --config-env staging  -> staging
+#   sam deploy --config-env prod     -> production
+# CI deploys staging first, runs integration tests, then promotes to prod.
 
 version = 0.1
 
 [default]
 [default.global.parameters]
-stack_name = "url-shortener-dev"
+stack_name = "url-shortener-staging"
 region = "us-east-1"
 
 [default.build.parameters]
@@ -19,9 +25,9 @@ lint = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
-parameter_overrides = "Environment=\"dev\""
+s3_prefix = "url-shortener-staging"
 region = "us-east-1"
-s3_prefix = "url-shortener-dev"
+parameter_overrides = "Environment=\"staging\" DomainName=\"url-shortener-staging.berlintechs.com\" CertificateArn=\"arn:aws:acm:us-east-1:633605692642:certificate/4d136ddf-d322-4aca-8aa1-fb2005bcbc4e\""
 image_repositories = []
 
 [default.package.parameters]
@@ -36,12 +42,24 @@ warm_containers = "EAGER"
 [default.local_start_lambda.parameters]
 warm_containers = "EAGER"
 
-# Production configuration
+# Staging - receives every push first; integration tests run here
+[staging]
+[staging.deploy.parameters]
+stack_name = "url-shortener-staging"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "url-shortener-staging"
+region = "us-east-1"
+parameter_overrides = "Environment=\"staging\" DomainName=\"url-shortener-staging.berlintechs.com\" CertificateArn=\"arn:aws:acm:us-east-1:633605692642:certificate/4d136ddf-d322-4aca-8aa1-fb2005bcbc4e\""
+
+# Production - serves url-shortener.berlintechs.com
 [prod]
 [prod.deploy.parameters]
 stack_name = "url-shortener-prod"
-parameter_overrides = "Environment=prod"
-confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
 resolve_s3 = true
+s3_prefix = "url-shortener-prod"
 region = "us-east-1"
+parameter_overrides = "Environment=\"prod\" DomainName=\"url-shortener.berlintechs.com\" CertificateArn=\"arn:aws:acm:us-east-1:633605692642:certificate/44fddf0a-dc3c-441f-a109-19002961ff39\""

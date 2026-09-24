@@ -67,9 +67,9 @@ sam deploy --guided
 
 **You'll be prompted for:**
 
-1. **Stack Name:** `url-shortener-dev` (recommended)
+1. **Stack Name:** `url-shortener-staging` (recommended)
 2. **AWS Region:** `us-east-1` (or your preferred region)
-3. **Parameter Environment:** `dev`
+3. **Parameter Environment:** `staging`
 4. **Confirm changes before deploy:** `Y`
 5. **Allow SAM CLI IAM role creation:** `Y`
 6. **Disable rollback:** `N`
@@ -87,7 +87,7 @@ sam deploy --guided
 
 **Expected output:**
 ```
-Successfully created/updated stack - url-shortener-dev in us-east-1
+Successfully created/updated stack - url-shortener-prod in us-east-1
 
 CloudFormation outputs from deployed stack
 -----------------------------------------------------------
@@ -314,20 +314,20 @@ sam deploy
 
 ```bash
 # Tail logs in real-time
-sam logs --stack-name url-shortener-dev --tail
+sam logs --stack-name url-shortener-prod --tail
 
 # View recent logs
-sam logs --stack-name url-shortener-dev --start-time '10min ago'
+sam logs --stack-name url-shortener-prod --start-time '10min ago'
 ```
 
 ### View CloudFormation Stack
 
 ```bash
 # List all stack outputs
-sam list stack-outputs --stack-name url-shortener-dev
+sam list stack-outputs --stack-name url-shortener-prod
 
 # View stack events
-aws cloudformation describe-stack-events --stack-name url-shortener-dev
+aws cloudformation describe-stack-events --stack-name url-shortener-prod
 ```
 
 ### View DynamoDB Table
@@ -335,7 +335,7 @@ aws cloudformation describe-stack-events --stack-name url-shortener-dev
 ```bash
 # Get table name
 TABLE_NAME=$(aws cloudformation describe-stacks \
-  --stack-name url-shortener-dev \
+  --stack-name url-shortener-prod \
   --query 'Stacks[0].Outputs[?OutputKey==`TableName`].OutputValue' \
   --output text)
 
@@ -355,7 +355,7 @@ aws dynamodb get-item \
 To delete all AWS resources:
 
 ```bash
-sam delete --stack-name url-shortener-dev
+sam delete --stack-name url-shortener-prod
 ```
 
 **⚠️ This deletes:**
@@ -415,7 +415,7 @@ Ensure your IAM user/role has CloudFormation, Lambda, DynamoDB, and API Gateway 
 
 **Check error:**
 ```bash
-aws cloudformation describe-stack-events --stack-name url-shortener-dev
+aws cloudformation describe-stack-events --stack-name url-shortener-prod
 ```
 
 Common issues:
