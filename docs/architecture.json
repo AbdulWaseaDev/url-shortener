@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "URL Shortener Runtime Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [1310, 520],
+    "views": [
+      { "id": "request-path", "label": "Primary request path", "focus": ["client", "apigw", "lambda", "ddb"], "note": "Create, redirect, and stats requests all take the same edge-to-table path." },
+      { "id": "edge-controls", "label": "Edge trust controls", "focus": ["cloudflare", "acm", "usageplan", "apigw"], "note": "DNS, TLS, API key, and throttling guard the public entry point." },
+      { "id": "operations", "label": "Observability and alerts", "focus": ["lambda", "xray", "cloudwatch", "sns", "email"], "note": "Logs, traces, and alarms stay off the request path." }
+    ]
+  },
+  "components": [
+    { "id": "client", "type": "external", "label": "Client", "sublabel": "browser / curl / Postman", "pos": [30, 240], "size": [150, 64] },
+    { "id": "cloudflare", "type": "external", "label": "Cloudflare DNS", "sublabel": "CNAME, DNS only", "pos": [30, 80], "size": [150, 64] },
+    { "id": "acm", "type": "security", "label": "ACM Certificate", "sublabel": "regional, TLS 1.2", "pos": [240, 80], "size": [150, 64] },
+    { "id": "usageplan", "type": "security", "label": "API Key + Usage Plan", "sublabel": "5 rps, 1000/day", "pos": [420, 80], "size": [170, 64] },
+    { "id": "apigw", "type": "cloud", "label": "API Gateway", "sublabel": "REST, Prod stage", "pos": [320, 240], "size": [160, 64], "tag": "50 rps throttle" },
+    { "id": "lambda", "type": "backend", "label": "Lambda", "sublabel": "Python 3.13 handler", "pos": [640, 240], "size": [160, 64] },
+    { "id": "ddb", "type": "database", "label": "DynamoDB", "sublabel": "links table", "pos": [900, 240], "size": [160, 64], "tag": "PITR + retain" },
+    { "id": "xray", "type": "cloud", "label": "X-Ray", "sublabel": "API + Lambda traces", "pos": [400, 400], "size": [150, 64] },
+    { "id": "cloudwatch", "type": "cloud", "label": "CloudWatch", "sublabel": "logs + 4 alarms", "pos": [645, 400], "size": [150, 64] },
+    { "id": "sns", "type": "messagebus", "label": "SNS Alerts", "sublabel": "alarm + OK", "pos": [905, 400], "size": [150, 64] },
+    { "id": "email", "type": "external", "label": "Operator Email", "sublabel": "address from SSM", "pos": [1130, 400], "size": [150, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "AWS account (per-env stack: staging / prod)", "wraps": ["acm", "usageplan", "apigw", "lambda", "ddb", "xray", "cloudwatch", "sns"], "pad": 34 },
+    { "kind": "security-group", "label": "Public edge: TLS + key + throttle", "wraps": ["acm", "usageplan", "apigw"], "pad": 16 },
+    { "kind": "security-group", "label": "IAM least privilege", "wraps": ["lambda", "ddb"], "pad": 16 }
+  ],
+  "connections": [
+    { "id": "client-to-api", "from": "client", "to": "apigw", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "api-to-lambda", "from": "apigw", "to": "lambda", "label": "invoke", "variant": "emphasis" },
+    { "id": "lambda-to-ddb", "from": "lambda", "to": "ddb", "label": "Get/Put/Update", "variant": "emphasis" },
+    { "id": "dns-resolve", "from": "client", "to": "cloudflare", "label": "resolve", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "tls-cert", "from": "acm", "to": "apigw", "label": "TLS", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "key-check", "from": "usageplan", "to": "apigw", "label": "x-api-key", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "traces", "from": "lambda", "to": "xray", "label": "traces", "variant": "dashed", "fromSide": "bottom", "toSide": "right" },
+    { "id": "logs", "from": "lambda", "to": "cloudwatch", "label": "logs + metrics", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24, "labelDx": 48 },
+    { "id": "alarm", "from": "cloudwatch", "to": "sns", "label": "alarm", "variant": "dashed" },
+    { "id": "notify", "from": "sns", "to": "email", "label": "email", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Routes", "items": ["POST /links creates a 6-char secrets-based code (API key required)", "GET /{code} returns 302 and atomically increments click_count", "GET /links/{code}/stats is public and read-only"] },
+    { "dot": "rose", "title": "Trust boundaries", "items": ["Internet clients are untrusted; only POST /links needs a key", "Lambda role allows only Get/Put/UpdateItem on the links table"] },
+    { "dot": "emerald", "title": "Data safety", "items": ["Conditional PutItem prevents code collisions (5 retries)", "Redirect update requires attribute_exists, so unknown codes 404"] },
+    { "dot": "amber", "title": "Operations", "items": ["Alarms: API 5xx, Lambda errors, throttles, p99 latency > 3s", "CI deploys staging, runs integration tests, then prod"] }
+  ]
+}

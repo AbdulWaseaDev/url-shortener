@@ -11,6 +11,10 @@ This application provides a REST API for:
 
 ## Architecture
 
+### ▶️ [Explore the interactive architecture diagram](https://abdulwaseadev.github.io/url-shortener/architecture.html)
+
+[![Runtime architecture: client, API Gateway, Lambda and DynamoDB, with trust boundaries and alerting](docs/screenshots/architecture.png)](https://abdulwaseadev.github.io/url-shortener/architecture.html)
+
 ```
 ┌─────────────┐      ┌──────────────────┐      ┌─────────────┐      ┌──────────────┐
 │   Client    │─────▶│   API Gateway    │─────▶│   Lambda    │─────▶│  DynamoDB    │
@@ -466,7 +470,10 @@ url-shortener/
 │   └── smoke/                              # Read-only production checks (run in CI)
 │       ├── __init__.py
 │       └── test_smoke.py                   # 404s and API key enforcement
-├── docs/screenshots/                       # Live demo screenshots used in this README
+├── docs/
+│   ├── architecture.html                   # Interactive architecture diagram (GitHub Pages)
+│   ├── architecture.json                   # Diagram source (archify)
+│   └── screenshots/                        # Live demo and diagram screenshots used in this README
 ├── events/                                 # Sample API Gateway events for local testing
 │   ├── create_link.json
 │   ├── get_redirect.json
